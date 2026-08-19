@@ -89,6 +89,18 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .calgrid button.feriado::before{content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:var(--danger)}
 .calgrid button.sel.feriado{color:#fff}
 .calgrid button.sel.feriado::before{background:#fff}
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin-top:6px}
+.tblwrap table{width:100%;border-collapse:collapse;font-size:13px;background:var(--paper)}
+.tblwrap th,.tblwrap td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+.tblwrap th{background:var(--ice);font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:800}
+.tblwrap td.n,.tblwrap th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tblwrap tfoot td{background:var(--ice);font-size:14px}
+.tblwrap tbody tr:last-child td{border-bottom:none}
+.now-head{background:linear-gradient(135deg,var(--navy),var(--royal));color:#fff;border-radius:16px;padding:20px;margin-bottom:14px}
+.now-head .t{font-size:13px;opacity:.85;font-weight:600}
+.now-head .big{font-size:32px;font-weight:800;margin:4px 0}
+.now-head .sub{font-size:12px;opacity:.9}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 .mesbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
 .mesbar-lbl{font-size:13px;font-weight:700;color:var(--mut)}
 .messel{padding:9px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);font-weight:600;color:var(--navy)}
@@ -326,13 +338,12 @@ function executor(s){ const x=st(s.id);
   return s.medico; }
 function statusOf(s){
   const x = st(s.id);
-  if (s.medico==='A DEFINIR' && !x.executor) return 'def';
+  if ((s.medico==='A DEFINIR' && !x.executor)) return 'def';
   if (x.status==='Falta') return 'falta';
-  if (x.status==='Realizado') return 'ok';
-  if (x.in && !x.out) return 'in';
-  return 'pend';
+  // presunção: todo plantão escalado conta como realizado, salvo falta marcada pela coordenação
+  return 'ok';
 }
-const CHIP = {pend:['c-pend','Previsto'], in:['c-in','Em plantão'], ok:['c-ok','Realizado'], falta:['c-falta','Falta'], def:['c-def','A definir']};
+const CHIP = {ok:['c-ok','Realizado'], falta:['c-falta','Falta'], def:['c-def','A definir']};
 function bandClass(s){
   if (s.setor==='UNI') return 'b-UNI';
   if (s.papel.startsWith('Diarista')) return 'b-DIAR';
@@ -349,7 +360,9 @@ function render(){
   const app = document.getElementById('app');
   if (!user){ app.innerHTML = loginView(); return; }
   const tabs = user.tipo==='med'
-    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['meus','Meus plantões',icoUser()]]
+    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['meus','Meus plantões',icoUser()],['fin','A receber',icoCash()]]
+    : user.tipo==='coord'
+    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]]
     : [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['aud','Auditoria',icoLog()]];
   if (!tabs.some(t=>t[0]===tab)) tab='agora';
   const quem = user.tipo==='coord'?'Coordenação Médica':user.tipo==='adm'?'Administrativo · validação de internações':user.nome;
@@ -360,7 +373,7 @@ function render(){
         <button onclick="abrirMinhaSenha()">senha</button> · <button onclick="logout()">sair</button></div>
     </header>
     <nav>${tabs.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="go('${t[0]}')">${t[2]}${t[1]}</button>`).join('')}</nav>
-    <main>${tab==='agora'?agoraView():tab==='escala'?escalaView():tab==='meus'?meusView():tab==='aud'?audView():fechView()}</main>`;
+    <main>${tab==='agora'?agoraView():tab==='escala'?escalaView():tab==='meus'?meusView():tab==='aud'?audView():tab==='fin'?finView():fechView()}</main>`;
 }
 function go(t){ tab=t; if(t==='aud') carregarAud(); render(); window.scrollTo(0,0); }
 async function logout(){
@@ -532,12 +545,11 @@ function meusView(){
   const today = todayISO();
   const prox = mine.filter(s=>s.data>=today);
   const past = mine.filter(s=>s.data<today);
-  const n = mine.length, ok = mine.filter(s=>statusOf(s)==='ok').length;
+  const n = mine.length, faltas = mine.filter(s=>statusOf(s)==='falta').length;
   return `
-    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
-      <div class="kpi"><div class="v">${n}</div><div class="l">No mês</div></div>
-      <div class="kpi g"><div class="v">${ok}</div><div class="l">Realizados</div></div>
-      <div class="kpi y"><div class="v">${n-ok}</div><div class="l">Pendentes</div></div>
+    <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+      <div class="kpi"><div class="v">${n}</div><div class="l">Plantões no mês</div></div>
+      <div class="kpi g"><div class="v">${n-faltas}</div><div class="l">A receber</div></div>
     </div>
     ${pedidos.length?`<h2 style="color:var(--warn)">Trocas aguardando sua confirmação</h2>${pedidos.map(card).join('')}`:''}
     <h2>Próximos</h2>${prox.map(card).join('')||'<div class="empty">Nenhum plantão futuro.</div>'}
@@ -566,28 +578,25 @@ function card(s){
   if (user.tipo==='coord' && tr && tr.status==='aceita' && !tr.vista){
     acts += `<button class="btn pri blink" onclick="cienteTroca('${s.id}')">Troca confirmada — marcar como vista</button>`;
   }
-  if (canAct && s.medico!=='A DEFINIR' || (user.tipo==='coord')){
-    if (stt==='pend' || stt==='def'){
-      acts += user.tipo==='med'
-        ? `<button class="btn pri" onclick="checkin('${s.id}')">Registrar entrada</button>
-           <button class="btn warn" onclick="openTroca('${s.id}')">Passar plantão</button>`
-        : `<button class="btn ok" onclick="markOk('${s.id}')">Confirmar realizado</button>
-           <button class="btn warn" onclick="openTroca('${s.id}')">Registrar troca</button>
-           <button class="btn dan" onclick="markFalta('${s.id}')">Marcar falta</button>`;
-    } else if (stt==='in'){
-      acts += `<button class="btn ok" onclick="checkout('${s.id}')">Registrar saída</button>`;
-    } else if (user.tipo==='coord'){
-      acts += `<button class="btn" onclick="reset('${s.id}')">Reabrir</button>`;
+  // Médico: pode passar plantão (troca). Coordenação: registrar troca + marcar/desmarcar falta.
+  if (s.medico!=='A DEFINIR' && stt!=='def'){
+    if (user.tipo==='med' && isMine && !dataPassada(s.data))
+      acts += `<button class="btn warn" onclick="openTroca('${s.id}')">Passar plantão</button>`;
+    if (user.tipo==='coord'){
+      acts += `<button class="btn warn" onclick="openTroca('${s.id}')">Registrar troca</button>`;
+      acts += (stt==='falta')
+        ? `<button class="btn ok" onclick="desmarcarFalta('${s.id}')">Desfazer falta</button>`
+        : `<button class="btn dan" onclick="markFalta('${s.id}')">Marcar falta</button>`;
     }
   }
+  // Internações: SOMENTE Plantonista 1 e 2 da Emergência
+  const podeIntern = s.setor==='EME' && (s.papel==='Plantonista 1' || s.papel==='Plantonista 2');
   const K = x.intern || [];
-  if (s.setor==='EME' && s.medico!=='A DEFINIR' && (isMine || user.tipo==='coord' || user.tipo==='adm')){
+  if (podeIntern && s.medico!=='A DEFINIR' && (isMine || user.tipo==='coord' || user.tipo==='adm')){
     acts += `<button class="btn" onclick="openIntern('${s.id}')">Internações${K.length?` (${K.length})`:''}</button>`;
   }
   const nUI=K.filter(i=>i.u==='UI'&&i.val).length, nUTI=K.filter(i=>i.u==='UTI'&&i.val).length, nAg=K.filter(i=>!i.val).length;
   const stamps = [
-    x.in ? `Entrada <b class="mono">${x.in}</b>` : '',
-    x.out ? `Saída <b class="mono">${x.out}</b>` : '',
     K.length ? `Internações validadas: <b>${nUI} UI</b> · <b>${nUTI} UTI</b>${nAg?` · <span style="color:var(--warn);font-weight:700">${nAg} aguardando</span>`:''}` : '',
     tr ? (tr.status==='pendente'
             ? `<span style="color:var(--warn);font-weight:700">Troca solicitada — aguardando aceite de ${tr.para}</span>`
@@ -611,11 +620,8 @@ function card(s){
 /* ---------- ações ---------- */
 function sh(id){ return SHIFTS.find(x=>x.id===id); }
 function dataPassada(iso){ const h=new Date(); h.setHours(0,0,0,0); return new Date(iso+'T00:00:00') < h; }
-function checkin(id){ log('Entrada registrada', descS(sh(id))); save(id,{in:nowHM()}); toast('Entrada registrada. Bom plantão!'); }
-function checkout(id){ log('Saída registrada · plantão confirmado', descS(sh(id))); save(id,{out:nowHM(), status:'Realizado'}); toast('Saída registrada — plantão confirmado.'); }
-function markOk(id){ log('Plantão confirmado manualmente', descS(sh(id))); save(id,{status:'Realizado'}); toast('Plantão confirmado.'); }
-function markFalta(id){ log('Falta registrada', descS(sh(id))); save(id,{status:'Falta'}); toast('Falta registrada.'); }
-function reset(id){ log('Plantão reaberto (status/horários apagados)', descS(sh(id))); save(id,{status:'', in:'', out:''}); toast('Plantão reaberto.'); }
+function markFalta(id){ log('Falta registrada', descS(sh(id))); save(id,{status:'Falta'}); toast('Falta registrada — plantão não contará no financeiro.'); }
+function desmarcarFalta(id){ log('Falta desfeita (volta a realizado)', descS(sh(id))); save(id,{status:''}); toast('Falta desfeita — plantão volta a contar.'); }
 
 let trocaId=null;
 function openTroca(id){
@@ -982,6 +988,10 @@ let internId=null;
 function openIntern(id){
   internId=id; uSel='UI';
   const s=sh(id), K=st(id).intern||[];
+  // Segurança: internação só existe para Plantonista 1 e 2 da Emergência
+  if(!(s.setor==='EME' && (s.papel==='Plantonista 1' || s.papel==='Plantonista 2'))){
+    toast('Internações são registradas apenas pelos plantonistas 1 e 2 da Emergência.'); return;
+  }
   const podeAdd = (user.tipo==='med' && executor(s)===user.nome) || user.tipo==='coord';
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
@@ -1059,7 +1069,15 @@ function addIntern(){
   const at=document.getElementById('iat').value.trim();
   if(!at){ err.textContent='Informe o nº do atendimento.'; err.style.display='block'; return; }
   const K=st(internId).intern||[];
-  if(K.some(i=>i.at===at)){ err.textContent='Este nº de atendimento já foi registrado neste plantão.'; err.style.display='block'; return; }
+  // BLOQUEIO GLOBAL: o mesmo nº de atendimento não pode existir em NENHUM outro plantão do mês
+  let dono=null, ondeS=null;
+  for(const sx of SHIFTS){
+    (st(sx.id).intern||[]).forEach(i=>{ if(i.at===at){ dono=i.por; ondeS=sx; } });
+  }
+  if(dono){
+    err.innerHTML = `⚠️ O atendimento <b>${at}</b> já foi registrado por <b>${dono}</b> (${fmtD(ondeS.data)}). Não é permitido cobrar a mesma internação duas vezes.`;
+    err.style.display='block'; return;
+  }
   err.style.display='none';
   const s=sh(internId);
   const nova={u:uSel, at, ts:new Date().toLocaleString('pt-BR'), por:autor()};
@@ -1085,6 +1103,141 @@ function internDe(m){ // totais de internações VALIDADAS por médico executor 
   });
   return {ui, uti, ag};
 }
+/* ============ MÓDULO FINANCEIRO ============ */
+const VALORES_PADRAO = {
+  plant_semana: 1125, plant_fds: 1300,        // Plantonista 1 e 2 EME
+  terceiro: 1250,                              // 3º plantonista (só dias úteis)
+  hospitalista: 1150,                          // fixo
+  prescritor_semana: 550, prescritor_fds: 650, // Plantonista UNI
+  bonus_ui: 150, bonus_uti: 250,               // por internação validada
+  // datas especiais (valor do plantonista 1 e 2), por MM-DD
+  especiais: { '06-23':1687.50, '06-24':1950, '12-24':1687.50, '12-25':1950, '12-31':1687.50, '01-01':1950 }
+};
+function getValores(){ return {...VALORES_PADRAO, ...(S._valores||{}), especiais:{...VALORES_PADRAO.especiais, ...((S._valores||{}).especiais||{})} }; }
+function ehFDS(iso){ const d=new Date(iso+'T12:00:00').getDay(); return d===0||d===6; } // dom/sáb
+function valorPlantao(s){
+  const V=getValores(); const md=s.data.slice(5); // MM-DD
+  const fds=ehFDS(s.data);
+  if(s.setor==='EME'){
+    if(s.papel==='Plantonista 1'||s.papel==='Plantonista 2'){
+      if(V.especiais[md]!=null) return V.especiais[md];       // datas especiais só p/ plant 1 e 2
+      return fds ? V.plant_fds : V.plant_semana;
+    }
+    if(s.papel.startsWith('Diarista')) return V.terceiro;     // 3º plantonista
+    return 0;
+  } else { // UNI
+    if(s.papel==='Hospitalista') return V.hospitalista;        // fixo
+    if(s.papel==='Plantonista') return fds ? V.prescritor_fds : V.prescritor_semana;
+    return 0;
+  }
+}
+// Demonstrativo de um médico no mês ativo
+function demonstrativo(nome){
+  const V=getValores();
+  const linhas=[]; let totalPlant=0, totalBonus=0, nUI=0, nUTI=0;
+  SHIFTS.filter(s=>executor(s)===nome).forEach(s=>{
+    if(statusOf(s)==='falta') return;                          // falta não conta
+    const v=valorPlantao(s);
+    let bonus=0, biUI=0, biUTI=0;
+    if(s.setor==='EME' && (s.papel==='Plantonista 1'||s.papel==='Plantonista 2')){
+      (st(s.id).intern||[]).forEach(i=>{ if(i.val){ if(i.u==='UTI'){bonus+=V.bonus_uti; biUTI++; nUTI++;} else {bonus+=V.bonus_ui; biUI++; nUI++;} } });
+    }
+    totalPlant+=v; totalBonus+=bonus;
+    linhas.push({data:s.data, dia:s.dia, setor:s.setor, papel:s.papel, valor:v, biUI, biUTI, bonus});
+  });
+  linhas.sort((a,b)=>a.data.localeCompare(b.data));
+  return {linhas, totalPlant, totalBonus, total:totalPlant+totalBonus, nUI, nUTI};
+}
+function BRL(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+function finView(){
+  if(user.tipo==='med'){
+    const d=demonstrativo(user.nome);
+    if(!d.linhas.length) return `<div class="now-head"><div class="t">A receber · ${MES.label}</div><div class="big">${BRL(0)}</div><div class="sub">Você não tem plantões neste mês.</div></div>`;
+    return `
+      <div class="now-head">
+        <div class="t">A receber · ${MES.label}</div>
+        <div class="big">${BRL(d.total)}</div>
+        <div class="sub">${d.linhas.length} plantão(ões)${d.totalBonus?` · inclui ${BRL(d.totalBonus)} de internações (${d.nUI} UI, ${d.nUTI} UTI)`:''}</div>
+      </div>
+      <div class="tblwrap"><table>
+        <thead><tr><th>Data</th><th>Plantão</th><th>Valor</th><th>Intern.</th></tr></thead>
+        <tbody>${d.linhas.map(l=>`<tr>
+          <td>${fmtD(l.data)} <span style="color:var(--mut)">${l.dia}</span></td>
+          <td>${l.setor==='EME'?'EME':'UNI'} · ${l.papel}</td>
+          <td class="n">${BRL(l.valor)}</td>
+          <td class="n">${l.bonus?`+${BRL(l.bonus)}`:'–'}</td></tr>`).join('')}</tbody>
+        <tfoot><tr><td colspan="2"><b>Total</b></td><td class="n" colspan="2"><b>${BRL(d.total)}</b></td></tr></tfoot>
+      </table></div>
+      <p style="font-size:12px;color:var(--mut);margin-top:10px">Valores sujeitos a conferência da coordenação e do setor de contas médicas. Apenas internações validadas entram no cálculo.</p>`;
+  }
+  // Coordenação: todos os médicos + total geral + configurar valores
+  const linhas=MEDICOS.map(m=>({m, d:demonstrativo(m)})).filter(x=>x.d.linhas.length);
+  linhas.sort((a,b)=>b.d.total-a.d.total);
+  const geral=linhas.reduce((a,x)=>a+x.d.total,0);
+  return `
+    <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+      <div class="kpi"><div class="v" style="font-size:18px">${BRL(geral)}</div><div class="l">Total do mês</div></div>
+      <div class="kpi"><div class="v">${linhas.length}</div><div class="l">Médicos com plantão</div></div>
+    </div>
+    <div class="tools"><button class="btn pri" onclick="exportFin()">Exportar financeiro (CSV)</button>
+      <button class="btn" onclick="openValores()">Configurar valores</button></div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>Médico</th><th>Plantões</th><th>Internações</th><th>Total</th></tr></thead>
+      <tbody>${linhas.map(x=>`<tr>
+        <td>${x.m}</td>
+        <td class="n">${BRL(x.d.totalPlant)}</td>
+        <td class="n">${x.d.totalBonus?BRL(x.d.totalBonus):'–'}</td>
+        <td class="n"><b>${BRL(x.d.total)}</b></td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="3"><b>Total geral</b></td><td class="n"><b>${BRL(geral)}</b></td></tr></tfoot>
+    </table></div>
+    <p style="font-size:12px;color:var(--mut);margin-top:10px">Cada médico vê apenas o próprio total. Faltas (marcadas na escala) e internações não validadas não entram. Confira antes de enviar às contas médicas.</p>`;
+}
+function exportFin(){
+  log('Exportação do financeiro', MES.label);
+  const head='medico;plantoes_valor;internacoes_bonus;total;num_plantoes;intern_ui;intern_uti\n';
+  const linhas=MEDICOS.map(m=>{const d=demonstrativo(m); if(!d.linhas.length) return null;
+    return [m, d.totalPlant.toFixed(2), d.totalBonus.toFixed(2), d.total.toFixed(2), d.linhas.length, d.nUI, d.nUTI].join(';');
+  }).filter(Boolean);
+  if(!linhas.length){ toast('Nenhum valor a exportar neste mês.'); return; }
+  const blob=new Blob(['\uFEFF'+head+linhas.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`financeiro_${MES.m}_${MES.y}.csv`; a.click();
+  toast('Financeiro exportado.');
+}
+function openValores(){
+  const V=getValores();
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
+    <h3>Configurar valores (R$)</h3>
+    <p>Só a coordenação vê e edita. Vale para todos os cálculos do mês exibido.</p>
+    ${[['plant_semana','Plantonista 1 e 2 — dia de semana'],['plant_fds','Plantonista 1 e 2 — fim de semana'],
+       ['terceiro','3º plantonista (dias úteis)'],['hospitalista','Hospitalista (fixo)'],
+       ['prescritor_semana','Plantonista UNI — dia de semana'],['prescritor_fds','Plantonista UNI — fim de semana'],
+       ['bonus_ui','Bônus internação UI'],['bonus_uti','Bônus internação UTI']].map(([k,lbl])=>`
+      <label style="font-size:12px;font-weight:700;color:var(--mut)">${lbl}</label>
+      <input id="v_${k}" inputmode="decimal" value="${V[k]}">`).join('')}
+    <div class="row">
+      <button class="btn" onclick="closeOv()">Cancelar</button>
+      <button class="btn pri" onclick="salvarValores()">Salvar valores</button>
+    </div>
+    <p style="margin-top:10px;font-size:12px;color:var(--mut)">Datas especiais (jun/dez) já vêm configuradas e se aplicam automaticamente aos plantonistas 1 e 2.</p>
+  </div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
+  document.body.appendChild(ov);
+}
+function salvarValores(){
+  const campos=['plant_semana','plant_fds','terceiro','hospitalista','prescritor_semana','prescritor_fds','bonus_ui','bonus_uti'];
+  const nv={...(S._valores||{})};
+  for(const k of campos){ const raw=(document.getElementById('v_'+k).value||'').replace(',','.'); const n=parseFloat(raw);
+    if(isNaN(n)||n<0){ toast('Valor inválido em um dos campos.'); return; } nv[k]=n; }
+  log('Valores financeiros alterados','configuração de valores por função');
+  S._valores=nv;
+  supa.from('estado').upsert({chave:'valores', valor:nv, atualizado_por:autor()},{onConflict:'chave'})
+    .then(({error})=>{ if(error) toast('Falha ao salvar valores.'); else toast('Valores atualizados.'); });
+  closeOv(); render();
+}
+
 function internPendentes(){ let n=0;
   SHIFTS.filter(s=>s.setor==='EME').forEach(s=>{(st(s.id).intern||[]).forEach(i=>{ if(!i.val) n++; })});
   return n;
@@ -1096,6 +1249,7 @@ function icoCal(){return `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" 
 function icoUser(){return `<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 5-5.5 8-5.5s6.5 1.5 8 5.5"/></svg>`;}
 function icoDoc(){return `<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/></svg>`;}
 function icoLog(){return `<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1-9 9"/><path d="M3 5v4h4"/><path d="M12 8v4l3 2"/></svg>`;}
+function icoCash(){return `<svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9v6M18 9v6"/></svg>`;}
 
 async function iniciar(){
   loadEscala(); render();
