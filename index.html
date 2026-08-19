@@ -224,16 +224,15 @@ async function carregarNuvem(){
     else if(r.chave.startsWith('escala:')){ ESCALAS[r.chave.slice(7)] = r.valor; } // formato v11 (por mês)
     else if(r.chave.startsWith('reg:')) S[r.chave.slice(4)]=r.valor;
   });
-  // MIGRAÇÃO v10 -> v11: se existe a escala antiga e ainda não há a gaveta do mês dela, cria
-  if(escalaAntiga && escalaAntiga.shifts && escalaAntiga.shifts.length){
+  // MIGRAÇÃO v10 -> v11: só roda na PRIMEIRA vez (quando ainda não existe NENHUMA gaveta escala:*)
+  // Blindagem: se já há qualquer escala mensal, a migração é ignorada para nunca sobrescrever.
+  const jaTemGavetas = Object.keys(ESCALAS).length>0;
+  if(escalaAntiga && escalaAntiga.shifts && escalaAntiga.shifts.length && !jaTemGavetas){
     const d0 = escalaAntiga.shifts.map(s=>s.data).sort()[0];
     const ym = d0.slice(0,7);
-    if(!ESCALAS[ym]){
-      ESCALAS[ym] = escalaAntiga;
-      // grava a nova gaveta e NÃO apaga a antiga (segurança) — apenas passa a ignorá-la
-      if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:escalaAntiga, atualizado_por:'migração v11'})
-        .then(({error})=>{ if(error) console.error('migração:',error); });
-    }
+    ESCALAS[ym] = escalaAntiga;
+    if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:escalaAntiga, atualizado_por:'migração v11'}, {onConflict:'chave'})
+      .then(({error})=>{ if(error) console.error('migração:',error); });
   }
   loadEscala();
   return true;
@@ -872,7 +871,7 @@ function openImport(){
     <div id="imperr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin-bottom:10px"></div>
     <div class="row">
       <button class="btn" onclick="closeOv()">Cancelar</button>
-      <button class="btn pri" onclick="importarEscala()">Importar e substituir</button>
+      <button class="btn pri" onclick="importarEscala()">Importar escala do mês</button>
     </div>
     <p style="margin-top:12px">A importação cria ou atualiza a escala <b>do mês contido no arquivo</b>, para todos os usuários. Os outros meses e todos os registros de plantão são <b>preservados</b>. Se o mês já existir, o app pede confirmação antes de atualizar a grade.</p>
   </div>`;
@@ -950,19 +949,22 @@ function importarEscala(){
   const meses=[...new Set(shifts.map(s=>s.data.slice(0,7)))];
   if(meses.length>1){ err.textContent=`O arquivo mistura meses diferentes (${meses.join(', ')}). Importe um mês por vez.`; err.style.display='block'; return; }
   const ym = meses[0];
-  // se já existe escala para esse mês, confirmar antes de sobrescrever (registros de plantão são preservados de qualquer forma)
-  if(ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length){
-    if(!confirm(`Já existe uma escala para ${rotuloMes(ym)}. Substituir a grade desse mês? Os registros de plantão (entradas, trocas, internações) NÃO são apagados — apenas a lista de plantões é atualizada.`)) return;
-  }
+  const existente = ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length;
+  const outrosMeses = mesesDisponiveis().filter(k=>k!==ym);
+  // Confirmação clara, deixando explícito que SÓ o mês do arquivo é afetado
+  const msg = existente
+    ? `Já existe escala para ${rotuloMes(ym)} (${ESCALAS[ym].shifts.length} plantões). Deseja SUBSTITUIR a grade de ${rotuloMes(ym)} por esta nova (${shifts.length} plantões)?\n\nOs registros de plantão (entradas, trocas, internações) NÃO são apagados.${outrosMeses.length?`\nOs outros meses (${outrosMeses.map(rotuloMes).join(', ')}) NÃO são afetados.`:''}`
+    : `Importar a escala de ${rotuloMes(ym)} (${shifts.length} plantões)?${outrosMeses.length?`\n\nOs outros meses já cadastrados (${outrosMeses.map(rotuloMes).join(', ')}) NÃO são afetados.`:''}`;
+  if(!confirm(msg)) return;
   closeOv();
   const info=`${shifts.length} plantões, em ${new Date().toLocaleString('pt-BR')} por ${autor()}`;
-  log('Escala importada para '+rotuloMes(ym), info);
+  log((existente?'Escala SUBSTITUÍDA em ':'Escala importada para ')+rotuloMes(ym), info);
+  // PROTEÇÃO: grava APENAS a chave deste mês. Impossível atingir outra gaveta.
   ESCALAS[ym]={shifts, info};
-  mesAtivo = ym;   // passa a exibir o mês recém-importado
-  supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()})
-    .then(({error})=>{ if(error) toast('Falha ao publicar a escala no banco.'); });
+  mesAtivo = ym;
+  supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()}, {onConflict:'chave'})
+    .then(({error})=>{ if(error){ toast('Falha ao publicar a escala no banco.'); console.error(error);} else { toast('Escala de '+rotuloMes(ym)+' salva. Outros meses preservados.'); } });
   loadEscala(); selSetor='TODOS'; render();
-  toast('Escala de '+rotuloMes(ym)+' importada.');
 }
 function restoreEscala(){
   const ym = MES.ym;
