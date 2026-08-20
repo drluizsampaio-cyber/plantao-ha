@@ -428,7 +428,12 @@ function log(acao, detalhe){
   supa.from('auditoria').insert({quem:autor(), acao, detalhe})
     .then(({error})=>{ if(error) console.error('auditoria:',error); });
 }
-function descS(s){ return fmtD(s.data)+' · '+(s.setor==='EME'?'Emergência':'Internação')+' · '+s.turno+' · '+s.papel+' · escalado: '+s.medico; }
+function rotuloPapel(s){
+  // Exibição: o plantonista da Internação (UNI) chama-se 'Prescritor(a)'. Chave interna segue 'Plantonista'.
+  if(s.setor==='UNI' && s.papel==='Plantonista') return 'Prescritor(a)';
+  return s.papel;
+}
+function descS(s){ return fmtD(s.data)+' · '+(s.setor==='EME'?'Emergência':'Internação')+' · '+s.turno+' · '+rotuloPapel(s)+' · escalado: '+s.medico; }
 
 /* ---------- login individual (Supabase Auth) ---------- */
 function loginView(){
@@ -660,7 +665,7 @@ function card(s){
     <div class="band ${bandClass(s)}"><span class="d">${s.data.slice(8)}</span><span class="m">${bandLabel(s)}</span></div>
     <div class="body">
       <div class="top"><span class="med">${exec}</span><span class="chip ${cls}">${lbl}</span></div>
-      <div class="papel">${s.setor==='EME'?'Emergência':'Internação'} · ${s.papel}${trocado?' · substituindo '+s.medico:''}</div>
+      <div class="papel">${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)}${trocado?' · substituindo '+s.medico:''}</div>
       <div class="hrs">${fmtD(s.data)} (${s.dia}) · <b class="mono">${s.hini}–${s.hfim}</b></div>
       ${stamps?`<div class="stamp">${stamps}</div>`:''}
       ${acts?`<div class="acts">${acts}</div>`:''}
@@ -691,7 +696,7 @@ function openTroca(id){
   const ov = document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML = `<div class="sheet">
     <h3>${s.medico==='A DEFINIR'?'Definir plantonista':(user.tipo==='med'?'Solicitar troca de plantão':'Registrar troca')}</h3>
-    <p>${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${s.papel} · ${s.hini}–${s.hfim}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
+    <p>${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)} · ${s.hini}–${s.hfim}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
     <select id="sub">${MEDICOS.filter(m=>m!==s.medico).map(m=>`<option>${m}</option>`).join('')}</select>
     <input id="obs" placeholder="Motivo / observação (opcional)">
     <div class="row">
@@ -764,7 +769,7 @@ function openOcor(id){
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Ocorrências do plantão</h3>
-    <p>${fmtD(s.data)} (${s.dia}) · ${s.setor==='EME'?'Emergência':'Internação'} · ${s.turno} · ${s.papel} · <b>${executor(s)}</b><br>
+    <p>${fmtD(s.data)} (${s.dia}) · ${s.setor==='EME'?'Emergência':'Internação'} · ${s.turno} · ${rotuloPapel(s)} · <b>${executor(s)}</b><br>
     Registre aqui eventos não habituais do plantão (intercorrências, faltas de insumo, problemas estruturais, casos de destaque). Fica visível a todos os médicos e à coordenação.</p>
     <div id="olist">${ocorLista(st(id).ocor||[], id)}</div>
     ${podeAdd?`
@@ -935,7 +940,7 @@ function printMes(){
     const L=SHIFTS.filter(s=>s.data===isoDe(d)&&s.setor==='UNI');
     if(!L.length) return `<td><div class="dn">${d}</div></td>`;
     return `<td><div class="dn">${d}</div>
-      ${L.map(s=>`<div class="ln uni"><b>${s.papel.slice(0,4)}</b> ${abrev(executor(s))}</div>`).join('')}
+      ${L.map(s=>`<div class="ln uni"><b>${s.papel==='Plantonista'?'Presc':s.papel.slice(0,4)}</b> ${abrev(executor(s))}</div>`).join('')}
     </td>`;
   };
   const grade = (titulo, sub, cell) => `
@@ -956,7 +961,7 @@ function exportCSV(){
   log('Exportação do CSV de fechamento', MES.label);
   const head='data;dia;setor;turno;funcao;medico_escalado;medico_executor;entrada;saida;status;internacoes_ui_validadas;internacoes_uti_validadas;internacoes_aguardando;num_atendimentos_validados;observacao\n';
   const body=SHIFTS.map(s=>{const x=st(s.id); const K=x.intern||[];
-    return [s.data,s.dia,s.setor,s.turno,s.papel,s.medico,executor(s),x.in||'',x.out||'',
+    return [s.data,s.dia,s.setor,s.turno,rotuloPapel(s),s.medico,executor(s),x.in||'',x.out||'',
       statusOf(s)==='ok'?'Realizado':statusOf(s)==='falta'?'Falta':statusOf(s)==='def'?'A definir':'Pendente',
       K.filter(i=>i.u==='UI'&&i.val).length, K.filter(i=>i.u==='UTI'&&i.val).length, K.filter(i=>!i.val).length,
       K.filter(i=>i.val).map(i=>i.u+':'+i.at).join(' | '),
