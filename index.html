@@ -101,9 +101,20 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .now-head .big{font-size:32px;font-weight:800;margin:4px 0}
 .now-head .sub{font-size:12px;opacity:.9}
 .tools{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
-.calgrid button.meuplantao{box-shadow:inset 0 0 0 2px var(--royal)}
-.calgrid button.meuplantao::after{content:"";position:absolute;top:3px;right:3px;width:5px;height:5px;border-radius:50%;background:var(--royal)}
-.calgrid button.sel.meuplantao{box-shadow:inset 0 0 0 2px #fff}
+.finexp{color:var(--mut);font-size:11px;margin-left:4px}
+.finsub{padding:4px 2px}
+.finsub-l{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:5px 8px;border-bottom:1px dashed var(--line)}
+.finsub-l:last-child{border-bottom:none}
+.finsub-l span:first-child{color:var(--mut)}
+.findet td{background:var(--ice);padding:6px 10px !important}
+:root{--srv-eme12-c:#fff3b0;--srv-eme3-c:#ffc9c2;--srv-presc-c:#cfe3ff;--srv-hosp-c:#7fa8e0}
+.calgrid button.srv{font-weight:700}
+.calgrid button.srv-eme12{background:var(--srv-eme12-c)}
+.calgrid button.srv-eme3{background:var(--srv-eme3-c)}
+.calgrid button.srv-presc{background:var(--srv-presc-c)}
+.calgrid button.srv-hosp{background:var(--srv-hosp-c);color:#fff}
+.calgrid button.srv-multi{background:linear-gradient(135deg,var(--c1) 0 50%,var(--c2) 50% 100%)}
+.calgrid button.sel{background:var(--navy) !important;color:#fff}
 .mesnav{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:12px}
 .mesnav-lbl{font-size:16px;font-weight:800;color:var(--navy);min-width:150px;text-align:center}
 .tag-atual{font-size:10px;background:var(--royal);color:#fff;padding:2px 7px;border-radius:20px;font-weight:700;vertical-align:middle}
@@ -525,13 +536,15 @@ function escalaView(){
   const temAnterior = idx>0, temProximo = idx>=0 && idx<disp.length-1;
   const seletor = `<div class="mesnav">
       <button class="mesnav-seta" ${temAnterior?`onclick="trocarMes('${disp[idx-1]}')"`:'disabled'} aria-label="Mês anterior">‹</button>
-      <div class="mesnav-lbl">${MES.label}${MES.corrente?' <span class="tag-atual">atual</span>':''}</div>
+      <div class="mesnav-lbl">${MES.label}</div>
       <button class="mesnav-seta" ${temProximo?`onclick="trocarMes('${disp[idx+1]}')"`:'disabled'} aria-label="Próximo mês">›</button>
     </div>${!MES.corrente && ESCALAS[ymAtual()]?`<div style="text-align:center;margin:-4px 0 10px"><button class="btn" style="padding:5px 12px;font-size:12px" onclick="trocarMes('${ymAtual()}')">↺ Voltar ao mês atual</button></div>`:''}`;
   const fer = feriadosDe(MES.y);
-  // dias em que o MÉDICO logado tem plantão (para destaque)
-  const meusDias = new Set();
-  if(user.tipo==='med'){ SHIFTS.forEach(s=>{ if(executor(s)===user.nome) meusDias.add(s.data); }); }
+  // dias em que o MÉDICO logado tem plantão, com a(s) cor(es) do tipo de serviço
+  const meusDias = {};   // iso -> Set de classes de cor
+  if(user.tipo==='med'){ SHIFTS.forEach(s=>{ if(executor(s)===user.nome){
+    (meusDias[s.data] = meusDias[s.data] || new Set()).add(tipoServico(s).cor);
+  }}); }
   let cal = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(w=>`<span class="wd">${w}</span>`).join('');
   for(let i=0;i<off;i++) cal += `<span></span>`;
   const alerta = user.tipo==='coord' ? trocasNaoVistas() : new Set();
@@ -539,9 +552,13 @@ function escalaView(){
   for(let i=1;i<=MES.dias;i++){
     const iso=`${MES.y}-${String(MES.m).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
     const eh=fer[iso]?' feriado':'';
-    const meu=meusDias.has(iso)?' meuplantao':'';
+    const cores = meusDias[iso] ? [...meusDias[iso]] : [];
     const al=(alerta.has(iso)||alertaOco.has(iso))?' alerta':'';
-    cal += `<button class="${iso===selDate?'sel':''}${iso===hoje?' today':''}${al}${eh}${meu}" onclick="pick('${iso}')" ${fer[iso]?`title="${fer[iso]}"`:''}>${i}</button>`;
+    let estilo='';
+    if(cores.length===1){ estilo=` srv ${cores[0]}`; }
+    else if(cores.length>1){ estilo=' srv srv-multi'; } // degradê via variáveis definidas inline
+    const multiStyle = cores.length>1 ? ` style="--c1:var(--${cores[0]}-c);--c2:var(--${cores[1]}-c)"` : '';
+    cal += `<button class="${iso===selDate?'sel':''}${iso===hoje?' today':''}${al}${eh}${estilo}"${multiStyle} onclick="pick('${iso}')" ${fer[iso]?`title="${fer[iso]}"`:''}>${i}</button>`;
   }
   let list = SHIFTS.filter(s=>s.data===selDate);
   if (selSetor!=='TODOS') list=list.filter(s=>s.setor===selSetor);
@@ -1241,6 +1258,26 @@ const VALORES_PADRAO = {
 };
 function getValores(){ return {...VALORES_PADRAO, ...(S._valores||{}), especiais:{...VALORES_PADRAO.especiais, ...((S._valores||{}).especiais||{})} }; }
 function ehFDS(iso){ const d=new Date(iso+'T12:00:00').getDay(); return d===0||d===6; } // dom/sáb
+// Classifica o serviço do plantão: chave única, rótulo e cor (para calendário e financeiro)
+function tipoServico(s){
+  const fds = ehFDS(s.data);
+  const md = s.data.slice(5);
+  if(s.setor==='EME'){
+    if(s.papel==='Plantonista 1' || s.papel==='Plantonista 2'){
+      const V=getValores();
+      if(V.especiais[md]!=null) return {chave:'eme12_esp', rot:'Plantonista EME · data especial', cor:'srv-eme12'};
+      return fds ? {chave:'eme12_fds', rot:'Plantonista EME · fim de semana', cor:'srv-eme12'}
+                 : {chave:'eme12_sem', rot:'Plantonista EME · dia de semana', cor:'srv-eme12'};
+    }
+    if(s.papel.startsWith('Diarista')) return {chave:'eme3', rot:'3º plantonista EME', cor:'srv-eme3'};
+    return {chave:'eme_outro', rot:'Emergência', cor:'srv-eme12'};
+  } else {
+    if(s.papel==='Hospitalista') return {chave:'hosp', rot:'Hospitalista', cor:'srv-hosp'};
+    if(s.papel==='Plantonista') return fds ? {chave:'presc_fds', rot:'Prescritor · fim de semana', cor:'srv-presc'}
+                                           : {chave:'presc_sem', rot:'Prescritor · dia de semana', cor:'srv-presc'};
+    return {chave:'uni_outro', rot:'Internação', cor:'srv-presc'};
+  }
+}
 function valorPlantao(s){
   const V=getValores(); const md=s.data.slice(5); // MM-DD
   const fds=ehFDS(s.data);
@@ -1269,12 +1306,24 @@ function demonstrativo(nome){
       (st(s.id).intern||[]).forEach(i=>{ if(i.val){ if(i.u==='UTI'){bonus+=V.bonus_uti; biUTI++; nUTI++;} else {bonus+=V.bonus_ui; biUI++; nUI++;} } });
     }
     totalPlant+=v; totalBonus+=bonus;
-    linhas.push({data:s.data, dia:s.dia, setor:s.setor, papel:s.papel, valor:v, biUI, biUTI, bonus});
+    const ts=tipoServico(s);
+    linhas.push({data:s.data, dia:s.dia, setor:s.setor, papel:s.papel, valor:v, biUI, biUTI, bonus, srvChave:ts.chave, srvRot:ts.rot});
   });
   linhas.sort((a,b)=>a.data.localeCompare(b.data));
-  return {linhas, totalPlant, totalBonus, total:totalPlant+totalBonus, nUI, nUTI};
+  // agrega por tipo de serviço
+  const porServico={};
+  linhas.forEach(l=>{
+    if(!porServico[l.srvChave]) porServico[l.srvChave]={rot:l.srvRot, qtd:0, valorUnit:l.valor, subtotal:0};
+    porServico[l.srvChave].qtd++; porServico[l.srvChave].subtotal+=l.valor;
+  });
+  return {linhas, porServico, totalPlant, totalBonus, total:totalPlant+totalBonus, nUI, nUTI};
 }
+// ordem de exibição fixa dos serviços
+const SRV_ORDEM=['eme12_sem','eme12_fds','eme12_esp','eme3','hosp','presc_sem','presc_fds','eme_outro','uni_outro'];
+const SRV_ROT={eme12_sem:'Plantonista EME (semana)',eme12_fds:'Plantonista EME (fim de semana)',eme12_esp:'Plantonista EME (data especial)',eme3:'3º plantonista EME',hosp:'Hospitalista',presc_sem:'Prescritor (semana)',presc_fds:'Prescritor (fim de semana)',eme_outro:'Emergência (outro)',uni_outro:'Internação (outro)'};
 function BRL(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function toggleFin(ix){ const d=document.getElementById('findet'+ix), e=document.getElementById('finexp'+ix);
+  if(d){ const open=d.style.display!=='none'; d.style.display=open?'none':'table-row'; if(e) e.textContent=open?'▾':'▴'; } }
 
 function finView(){
   if(user.tipo==='med'){
@@ -1310,26 +1359,38 @@ function finView(){
       ${user.tipo==='coord'?`<button class="btn" onclick="openValores()">Configurar valores</button>`:''}</div>
     <div class="tblwrap"><table>
       <thead><tr><th>Médico</th><th>Plantões</th><th>Internações</th><th>Total</th></tr></thead>
-      <tbody>${linhas.map(x=>`<tr>
-        <td>${x.m}</td>
+      <tbody>${linhas.map((x,ix)=>`<tr class="finrow" onclick="toggleFin(${ix})" style="cursor:pointer">
+        <td>${x.m} <span class="finexp" id="finexp${ix}">▾</span></td>
         <td class="n">${BRL(x.d.totalPlant)}</td>
         <td class="n">${x.d.totalBonus?BRL(x.d.totalBonus):'–'}</td>
-        <td class="n"><b>${BRL(x.d.total)}</b></td></tr>`).join('')}</tbody>
+        <td class="n"><b>${BRL(x.d.total)}</b></td></tr>
+        <tr class="findet" id="findet${ix}" style="display:none"><td colspan="4">
+          <div class="finsub">
+            ${SRV_ORDEM.filter(k=>x.d.porServico[k]).map(k=>{const g=x.d.porServico[k];
+              return `<div class="finsub-l"><span>${SRV_ROT[k]}</span><span>${g.qtd} × ${BRL(g.valorUnit)} = <b>${BRL(g.subtotal)}</b></span></div>`;}).join('')}
+            ${x.d.totalBonus?`<div class="finsub-l"><span>Internações (${x.d.nUI} UI, ${x.d.nUTI} UTI)</span><span><b>${BRL(x.d.totalBonus)}</b></span></div>`:''}
+          </div></td></tr>`).join('')}</tbody>
       <tfoot><tr><td colspan="3"><b>Total geral</b></td><td class="n"><b>${BRL(geral)}</b></td></tr></tfoot>
     </table></div>
-    <p style="font-size:12px;color:var(--mut);margin-top:10px">Cada médico vê apenas o próprio total. Faltas (marcadas na escala) e internações não validadas não entram. Confira antes de enviar às contas médicas.</p>`;
+    <p style="font-size:12px;color:var(--mut);margin-top:10px">Toque num médico para ver o detalhamento por tipo de serviço. O CSV exportado traz todas as colunas destrinchadas. Faltas e internações não validadas não entram.</p>`;
 }
 function exportFin(){
-  log('Exportação do financeiro', MES.label);
-  const head='medico;plantoes_valor;internacoes_bonus;total;num_plantoes;intern_ui;intern_uti\n';
+  log('Exportação do financeiro detalhado', MES.label);
+  // Uma coluna de QTD e uma de VALOR para cada tipo de serviço + internações + total
+  const cols=[];
+  SRV_ORDEM.forEach(k=>{ cols.push(['qtd_'+k, SRV_ROT[k]+' (qtd)']); cols.push(['val_'+k, SRV_ROT[k]+' (R$)']); });
+  const head=['medico',...cols.map(c=>c[1]),'intern_ui_qtd','intern_uti_qtd','internacoes_bonus_R$','TOTAL_R$'].join(';')+'\n';
   const linhas=MEDICOS.map(m=>{const d=demonstrativo(m); if(!d.linhas.length) return null;
-    return [m, d.totalPlant.toFixed(2), d.totalBonus.toFixed(2), d.total.toFixed(2), d.linhas.length, d.nUI, d.nUTI].join(';');
+    const campos=[m];
+    SRV_ORDEM.forEach(k=>{ const g=d.porServico[k]; campos.push(g?g.qtd:0); campos.push(g?g.subtotal.toFixed(2):'0.00'); });
+    campos.push(d.nUI, d.nUTI, d.totalBonus.toFixed(2), d.total.toFixed(2));
+    return campos.join(';');
   }).filter(Boolean);
   if(!linhas.length){ toast('Nenhum valor a exportar neste mês.'); return; }
   const blob=new Blob(['\uFEFF'+head+linhas.join('\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download=`financeiro_${MES.m}_${MES.y}.csv`; a.click();
-  toast('Financeiro exportado.');
+  a.download=`financeiro_detalhado_${MES.m}_${MES.y}.csv`; a.click();
+  toast('Financeiro detalhado exportado.');
 }
 function openValores(){
   const V=getValores();
