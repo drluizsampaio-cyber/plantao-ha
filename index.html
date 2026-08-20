@@ -101,6 +101,19 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .now-head .big{font-size:32px;font-weight:800;margin:4px 0}
 .now-head .sub{font-size:12px;opacity:.9}
 .tools{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.calgrid button.meuplantao{box-shadow:inset 0 0 0 2px var(--royal)}
+.calgrid button.meuplantao::after{content:"";position:absolute;top:3px;right:3px;width:5px;height:5px;border-radius:50%;background:var(--royal)}
+.calgrid button.sel.meuplantao{box-shadow:inset 0 0 0 2px #fff}
+.mesnav{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:12px}
+.mesnav-lbl{font-size:16px;font-weight:800;color:var(--navy);min-width:150px;text-align:center}
+.tag-atual{font-size:10px;background:var(--royal);color:#fff;padding:2px 7px;border-radius:20px;font-weight:700;vertical-align:middle}
+.mesnav-seta{width:38px;height:38px;border-radius:50%;border:1.5px solid var(--line);background:var(--paper);font-size:22px;line-height:1;color:var(--navy);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mesnav-seta:disabled{opacity:.3;cursor:default}
+.mesnav-seta:not(:disabled):hover{background:var(--ice);border-color:var(--royal)}
+.ocard{background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.ocard-txt{font-size:14px;line-height:1.45;color:var(--ink);white-space:pre-wrap}
+.ocard-meta{font-size:11.5px;color:var(--mut);margin-top:6px}
+.navbadge{display:inline-block;width:7px;height:7px;border-radius:50%;background:#ff4444;margin-left:3px;vertical-align:top}
 .mesbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
 .mesbar-lbl{font-size:13px;font-weight:700;color:var(--mut)}
 .messel{padding:9px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);font-weight:600;color:var(--navy)}
@@ -272,7 +285,14 @@ function assinarTempoReal(){
       if(!document.getElementById('ov')) render();
     }).subscribe();
   poll = setInterval(async()=>{
-    if(user && !document.getElementById('ov')){ await carregarNuvem(); render(); }
+    // Recarrega dados em segundo plano SEM mudar a data que o usuário está vendo.
+    if(user && !document.getElementById('ov')){
+      const manterData = selDate, manterTab = tab, manterSetor = selSetor, manterMes = mesAtivo;
+      await carregarNuvem();
+      selDate = manterData; tab = manterTab; selSetor = manterSetor;
+      if(ESCALAS[manterMes]) mesAtivo = manterMes;
+      render();
+    }
   }, 60000);
 }
 
@@ -312,7 +332,7 @@ function loadEscala(){
   MES = { y, m, dias:new Date(y,m,0).getDate(), label:MESES[m]+'/'+y, ym:`${y}-${String(m).padStart(2,'0')}`,
           custom: !!(imp && imp.shifts && imp.shifts.length), info: imp ? imp.info : '',
           corrente: (`${y}-${String(m).padStart(2,'0')}`===ymAtual()) };
-  selDate = todayISO();
+  if(!selDate) selDate = todayISO();   // só inicializa; não sobrescreve a navegação do usuário
 }
 function todayISO(){
   const t = new Date();
@@ -360,10 +380,10 @@ function render(){
   const app = document.getElementById('app');
   if (!user){ app.innerHTML = loginView(); return; }
   const tabs = user.tipo==='med'
-    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['meus','Meus plantões',icoUser()],['fin','A receber',icoCash()]]
+    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['meus','Meus plantões',icoUser()],['ocor','Ocorrências',icoWarn()],['fin','A receber',icoCash()]]
     : user.tipo==='coord'
-    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]]
-    : [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['aud','Auditoria',icoLog()]];
+    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['ocor','Ocorrências',icoWarn()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]]
+    : [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['ocor','Ocorrências',icoWarn()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]];
   if (!tabs.some(t=>t[0]===tab)) tab='agora';
   const quem = user.tipo==='coord'?'Coordenação Médica':user.tipo==='adm'?'Administrativo · validação de internações':user.nome;
   app.innerHTML = `
@@ -372,8 +392,11 @@ function render(){
       <div class="who"><b>${quem}</b>
         <button onclick="abrirMinhaSenha()">senha</button> · <button onclick="logout()">sair</button></div>
     </header>
-    <nav>${tabs.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="go('${t[0]}')">${t[2]}${t[1]}</button>`).join('')}</nav>
-    <main>${tab==='agora'?agoraView():tab==='escala'?escalaView():tab==='meus'?meusView():tab==='aud'?audView():tab==='fin'?finView():fechView()}</main>`;
+    <nav>${tabs.map(t=>{
+      const badge = (t[0]==='ocor' && user.tipo==='coord' && totalOcorNaoVistas()>0) ? '<span class="navbadge blink"></span>' : '';
+      return `<button class="${tab===t[0]?'on':''}" onclick="go('${t[0]}')">${t[2]}${t[1]}${badge}</button>`;
+    }).join('')}</nav>
+    <main>${tab==='agora'?agoraView():tab==='escala'?escalaView():tab==='meus'?meusView():tab==='aud'?audView():tab==='fin'?finView():tab==='ocor'?ocorView():fechView()}</main>`;
 }
 function go(t){ tab=t; if(t==='aud') carregarAud(); render(); window.scrollTo(0,0); }
 async function logout(){
@@ -496,26 +519,29 @@ function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 function escalaView(){
   const off = (new Date(MES.y, MES.m-1, 1).getDay()+6)%7; // seg=0
   const hoje = todayISO();
-  // seletor de mês (quando há mais de um mês arquivado)
+  // navegação de mês por setas (entre meses já cadastrados)
   const disp = mesesDisponiveis();
-  let seletor='';
-  if(disp.length>1 || (disp.length===1 && !MES.corrente)){
-    seletor = `<div class="mesbar">
-      <span class="mesbar-lbl">Mês:</span>
-      <select class="messel" onchange="trocarMes(this.value)">
-        ${disp.map(ym=>`<option value="${ym}" ${ym===MES.ym?'selected':''}>${rotuloMes(ym)}${ym===ymAtual()?' (atual)':''}</option>`).join('')}
-      </select>
-      ${!MES.corrente && ESCALAS[ymAtual()]?`<button class="btn" style="padding:6px 12px;font-size:13px" onclick="trocarMes('${ymAtual()}')">Ir para mês atual</button>`:''}
-    </div>`;
-  }
+  const idx = disp.indexOf(MES.ym);
+  const temAnterior = idx>0, temProximo = idx>=0 && idx<disp.length-1;
+  const seletor = `<div class="mesnav">
+      <button class="mesnav-seta" ${temAnterior?`onclick="trocarMes('${disp[idx-1]}')"`:'disabled'} aria-label="Mês anterior">‹</button>
+      <div class="mesnav-lbl">${MES.label}${MES.corrente?' <span class="tag-atual">atual</span>':''}</div>
+      <button class="mesnav-seta" ${temProximo?`onclick="trocarMes('${disp[idx+1]}')"`:'disabled'} aria-label="Próximo mês">›</button>
+    </div>${!MES.corrente && ESCALAS[ymAtual()]?`<div style="text-align:center;margin:-4px 0 10px"><button class="btn" style="padding:5px 12px;font-size:12px" onclick="trocarMes('${ymAtual()}')">↺ Voltar ao mês atual</button></div>`:''}`;
   const fer = feriadosDe(MES.y);
+  // dias em que o MÉDICO logado tem plantão (para destaque)
+  const meusDias = new Set();
+  if(user.tipo==='med'){ SHIFTS.forEach(s=>{ if(executor(s)===user.nome) meusDias.add(s.data); }); }
   let cal = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(w=>`<span class="wd">${w}</span>`).join('');
   for(let i=0;i<off;i++) cal += `<span></span>`;
   const alerta = user.tipo==='coord' ? trocasNaoVistas() : new Set();
+  const alertaOco = user.tipo==='coord' ? ocorrenciasNaoVistas() : new Set();
   for(let i=1;i<=MES.dias;i++){
     const iso=`${MES.y}-${String(MES.m).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
     const eh=fer[iso]?' feriado':'';
-    cal += `<button class="${iso===selDate?'sel':''}${iso===hoje?' today':''}${alerta.has(iso)?' alerta':''}${eh}" onclick="pick('${iso}')" ${fer[iso]?`title="${fer[iso]}"`:''}>${i}</button>`;
+    const meu=meusDias.has(iso)?' meuplantao':'';
+    const al=(alerta.has(iso)||alertaOco.has(iso))?' alerta':'';
+    cal += `<button class="${iso===selDate?'sel':''}${iso===hoje?' today':''}${al}${eh}${meu}" onclick="pick('${iso}')" ${fer[iso]?`title="${fer[iso]}"`:''}>${i}</button>`;
   }
   let list = SHIFTS.filter(s=>s.data===selDate);
   if (selSetor!=='TODOS') list=list.filter(s=>s.setor===selSetor);
@@ -595,9 +621,16 @@ function card(s){
   if (podeIntern && s.medico!=='A DEFINIR' && (isMine || user.tipo==='coord' || user.tipo==='adm')){
     acts += `<button class="btn" onclick="openIntern('${s.id}')">Internações${K.length?` (${K.length})`:''}</button>`;
   }
+  // Ocorrências: qualquer plantão (exceto A DEFINIR). Todos visualizam; registra o médico do plantão ou a coord.
+  const O = x.ocor || [];
+  if (s.medico!=='A DEFINIR'){
+    const oNovas = O.filter(o=>!o.vista).length;
+    acts += `<button class="btn" onclick="openOcor('${s.id}')">Ocorrências${O.length?` (${O.length})`:''}${(user.tipo==='coord'&&oNovas)?' •':''}</button>`;
+  }
   const nUI=K.filter(i=>i.u==='UI'&&i.val).length, nUTI=K.filter(i=>i.u==='UTI'&&i.val).length, nAg=K.filter(i=>!i.val).length;
   const stamps = [
     K.length ? `Internações validadas: <b>${nUI} UI</b> · <b>${nUTI} UTI</b>${nAg?` · <span style="color:var(--warn);font-weight:700">${nAg} aguardando</span>`:''}` : '',
+    (x.ocor&&x.ocor.length) ? `<span style="color:var(--warn)">⚠️ ${x.ocor.length} ocorrência(s) registrada(s)</span>` : '',
     tr ? (tr.status==='pendente'
             ? `<span style="color:var(--warn);font-weight:700">Troca solicitada — aguardando aceite de ${tr.para}</span>`
             : tr.status==='recusada'
@@ -695,6 +728,98 @@ function trocasNaoVistas(){
   const dias=new Set();
   SHIFTS.forEach(s=>{const t=st(s.id).troca; if(t&&t.status==='aceita'&&!t.vista) dias.add(s.data);});
   return dias;
+}
+
+/* ============ OCORRÊNCIAS ============ */
+// Cada ocorrência: {txt, por, ts, vista} vinculada ao plantão (reg do shift, campo 'ocor' = array)
+function ocorrenciasNaoVistas(){
+  const dias=new Set();
+  SHIFTS.forEach(s=>{ (st(s.id).ocor||[]).forEach(o=>{ if(!o.vista) dias.add(s.data); }); });
+  return dias;
+}
+function totalOcorNaoVistas(){
+  let n=0; SHIFTS.forEach(s=>{ (st(s.id).ocor||[]).forEach(o=>{ if(!o.vista) n++; }); }); return n;
+}
+let ocorId=null;
+function openOcor(id){
+  ocorId=id; const s=sh(id);
+  const podeAdd = (user.tipo==='med' && executor(s)===user.nome) || user.tipo==='coord';
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
+    <h3>Ocorrências do plantão</h3>
+    <p>${fmtD(s.data)} (${s.dia}) · ${s.setor==='EME'?'Emergência':'Internação'} · ${s.turno} · ${s.papel} · <b>${executor(s)}</b><br>
+    Registre aqui eventos não habituais do plantão (intercorrências, faltas de insumo, problemas estruturais, casos de destaque). Fica visível a todos os médicos e à coordenação.</p>
+    <div id="olist">${ocorLista(st(id).ocor||[], id)}</div>
+    ${podeAdd?`
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Nova ocorrência</label>
+    <textarea id="otxt" rows="4" placeholder="Descreva o ocorrido…" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);font-family:inherit;font-size:14px;resize:vertical"></textarea>
+    <div id="oerr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:6px 0"></div>
+    <div class="row">
+      <button class="btn" onclick="closeOv()">Fechar</button>
+      <button class="btn pri" onclick="addOcor()">Registrar ocorrência</button>
+    </div>`:`<div class="row"><button class="btn" onclick="closeOv()">Fechar</button></div>`}
+  </div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
+  document.body.appendChild(ov);
+}
+function ocorLista(K, id){
+  if(!K||!K.length) return '<div class="empty" style="padding:14px">Nenhuma ocorrência registrada neste plantão.</div>';
+  return K.map((o,ix)=>`<div class="ocard">
+    <div class="ocard-txt">${o.txt.replace(/</g,'&lt;')}</div>
+    <div class="ocard-meta">${o.por} · ${o.ts}${o.vista?'':' · <span style="color:var(--warn);font-weight:700">novo</span>'}</div>
+    ${(user.tipo==='coord' || (user.tipo==='med' && o.por.startsWith(user.nome)))?`<button class="btn dan" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="delOcor('${id}',${ix})">Excluir</button>`:''}
+  </div>`).join('');
+}
+function addOcor(){
+  const txt=(document.getElementById('otxt').value||'').trim();
+  const err=document.getElementById('oerr');
+  if(txt.length<3){ err.textContent='Descreva a ocorrência.'; err.style.display='block'; return; }
+  const s=sh(ocorId); const K=st(ocorId).ocor||[];
+  const nova={txt, por:autor(), ts:new Date().toLocaleString('pt-BR'), vista:(user.tipo==='coord')};
+  log('Ocorrência registrada', descS(s)+' · '+txt.slice(0,60));
+  S[ocorId]={...st(ocorId), ocor:[...K, nova]}; syncReg(ocorId);
+  document.getElementById('otxt').value='';
+  document.getElementById('olist').innerHTML=ocorLista(st(ocorId).ocor||[], ocorId);
+  toast('Ocorrência registrada.');
+}
+function delOcor(id,ix){
+  const K=[...(st(id).ocor||[])]; const rem=K.splice(ix,1)[0];
+  log('Ocorrência excluída', descS(sh(id))+' · '+(rem?rem.txt.slice(0,40):''));
+  S[id]={...st(id), ocor:K}; syncReg(id);
+  const box=document.getElementById('olist'); if(box) box.innerHTML=ocorLista(K, id);
+  render();
+}
+function cienteOcor(id, ix){
+  const K=[...(st(id).ocor||[])];
+  if(K[ix]){ K[ix]={...K[ix], vista:true}; }
+  log('Ocorrência visualizada pela coordenação', descS(sh(id)));
+  S[id]={...st(id), ocor:K}; syncReg(id);
+  toast('Ocorrência marcada como vista.');
+}
+function cienteTodasOcor(){
+  SHIFTS.forEach(s=>{ const K=st(s.id).ocor; if(K&&K.some(o=>!o.vista)){ S[s.id]={...st(s.id), ocor:K.map(o=>({...o,vista:true}))}; syncReg(s.id); } });
+  log('Todas as ocorrências marcadas como vistas', MES.label);
+  toast('Todas marcadas como vistas.'); render();
+}
+function ocorView(){
+  // compilado do mês ativo, mais recentes primeiro
+  const itens=[];
+  SHIFTS.forEach(s=>{ (st(s.id).ocor||[]).forEach((o,ix)=>{ itens.push({s, o, ix}); }); });
+  itens.sort((a,b)=> (a.s.data<b.s.data?1:a.s.data>b.s.data?-1:0));
+  const naoVistas = itens.filter(x=>!x.o.vista).length;
+  const cabe = `<div class="now-head" style="background:linear-gradient(135deg,#8a5a00,#b8860b)">
+      <div class="t">Ocorrências · ${MES.label}</div>
+      <div class="big">${itens.length}</div>
+      <div class="sub">${naoVistas?`${naoVistas} não vista(s) pela coordenação`:'todas visualizadas'}</div>
+    </div>`;
+  const acaoCoord = (user.tipo==='coord' && naoVistas) ? `<div class="tools"><button class="btn pri" onclick="cienteTodasOcor()">Marcar todas como vistas</button></div>` : '';
+  if(!itens.length) return cabe + '<div class="empty">Nenhuma ocorrência registrada neste mês.</div>';
+  const lista = itens.map(x=>`<div class="ocard" style="cursor:pointer" onclick="pick('${x.s.data}');go('escala')">
+      <div class="ocard-txt">${x.o.txt.replace(/</g,'&lt;')}</div>
+      <div class="ocard-meta">${fmtD(x.s.data)} (${x.s.dia}) · ${x.s.setor==='EME'?'EME':'UNI'} · ${x.s.turno} · ${x.o.por} · ${x.o.ts}${x.o.vista?'':' · <span style="color:var(--warn);font-weight:700">novo</span>'}</div>
+      ${user.tipo==='coord' && !x.o.vista?`<button class="btn ok" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="event.stopPropagation();cienteOcor('${x.s.id}',${x.ix})">Marcar como vista</button>`:''}
+    </div>`).join('');
+  return cabe + acaoCoord + lista;
 }
 
 /* ---------- Fechamento ---------- */
@@ -849,8 +974,9 @@ function printFolha(){
       <h1>REGISTRO FÍSICO DE PLANTÕES – ${MES.label.toUpperCase()}</h1>
       <div class="pi">Hospital Alagoinhas · Assinar na entrada e na saída de cada plantão · Documento de evidência para auditoria e contas médicas</div>
     </div></div>
-    <table><thead><tr><th>Data</th><th>Dia</th><th>Setor</th><th>Turno / Função</th><th>Médico</th><th>Entrada</th><th>Saída</th><th>Assinatura</th></tr></thead>
-    <tbody>${SHIFTS.map(s=>`<tr><td>${fmtD(s.data)}</td><td>${s.dia}</td><td>${s.setor}</td><td>${s.turno} · ${s.papel}</td><td>${executor(s)}</td><td class="sig" style="width:55px"></td><td class="sig" style="width:55px"></td><td class="sig"></td></tr>`).join('')}</tbody></table>`;
+    <table><thead><tr><th>Data</th><th>Dia</th><th>Turno / Função</th><th>Médico</th><th>Entrada</th><th>Saída</th><th>Assinatura</th></tr></thead>
+    <tbody>${SHIFTS.filter(s=>s.setor==='EME' && s.medico!=='A DEFINIR').sort((a,b)=>a.data.localeCompare(b.data)||a.turno.localeCompare(b.turno)).map(s=>`<tr><td>${fmtD(s.data)}</td><td>${s.dia}</td><td>${s.turno} · ${s.papel}</td><td>${executor(s)}</td><td class="sig" style="width:55px"></td><td class="sig" style="width:55px"></td><td class="sig"></td></tr>`).join('')}</tbody></table>
+    <p style="font-size:11px;color:#666;margin-top:8px">Somente plantonistas da Emergência (registram entrada/saída). Hospitalista e prescritor da Internação não constam nesta folha.</p>`;
   window.print();
 }
 
@@ -1181,7 +1307,7 @@ function finView(){
       <div class="kpi"><div class="v">${linhas.length}</div><div class="l">Médicos com plantão</div></div>
     </div>
     <div class="tools"><button class="btn pri" onclick="exportFin()">Exportar financeiro (CSV)</button>
-      <button class="btn" onclick="openValores()">Configurar valores</button></div>
+      ${user.tipo==='coord'?`<button class="btn" onclick="openValores()">Configurar valores</button>`:''}</div>
     <div class="tblwrap"><table>
       <thead><tr><th>Médico</th><th>Plantões</th><th>Internações</th><th>Total</th></tr></thead>
       <tbody>${linhas.map(x=>`<tr>
@@ -1250,6 +1376,7 @@ function icoUser(){return `<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"
 function icoDoc(){return `<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/></svg>`;}
 function icoLog(){return `<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1-9 9"/><path d="M3 5v4h4"/><path d="M12 8v4l3 2"/></svg>`;}
 function icoCash(){return `<svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9v6M18 9v6"/></svg>`;}
+function icoWarn(){return `<svg viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/></svg>`;}
 
 async function iniciar(){
   loadEscala(); render();
