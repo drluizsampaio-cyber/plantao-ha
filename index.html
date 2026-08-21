@@ -293,7 +293,7 @@ function assinarTempoReal(){
         if(r.valor&&r.valor.shifts&&r.valor.shifts.length){ ESCALAS[ym]=r.valor; } else { delete ESCALAS[ym]; }
         loadEscala(); }
       else if(r.chave.startsWith('reg:')) S[r.chave.slice(4)]=r.valor;
-      if(!document.getElementById('ov')) render();
+      if(!document.getElementById('ov')){ render(); verificarTrocasPendentes(); }
     }).subscribe();
   poll = setInterval(async()=>{
     // Recarrega dados em segundo plano SEM mudar a data que o usuário está vendo.
@@ -394,7 +394,7 @@ function render(){
     ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['meus','Meus plantões',icoUser()],['ocor','Ocorrências',icoWarn()],['fin','A receber',icoCash()]]
     : user.tipo==='coord'
     ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['ocor','Ocorrências',icoWarn()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]]
-    : [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['ocor','Ocorrências',icoWarn()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]];
+    : [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]];
   if (!tabs.some(t=>t[0]===tab)) tab='agora';
   const quem = user.tipo==='coord'?'Coordenação Médica':user.tipo==='adm'?'Administrativo · validação de internações':user.nome;
   app.innerHTML = `
@@ -487,6 +487,46 @@ async function aposLogin(session){
   assinarTempoReal();
   carregarAud();
   tab='agora'; render();
+  verificarTrocasPendentes();   // popup cobrando resposta de troca(s) recebida(s)
+}
+// Popup que cobra resposta das trocas pendentes destinadas ao usuário logado
+let _trocaPopupAtivo=false;
+function trocasParaMim(){
+  return SHIFTS.filter(s=>{const t=st(s.id).troca; return t && t.status==='pendente' && t.para===user.nome;});
+}
+function verificarTrocasPendentes(){
+  if(user.tipo!=='med') return;
+  if(_trocaPopupAtivo || document.getElementById('ov')) return;
+  const pend = trocasParaMim();
+  if(!pend.length) return;
+  const s = pend[0];                       // mostra uma de cada vez
+  const t = st(s.id).troca;
+  _trocaPopupAtivo=true;
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  ov.innerHTML=`<div class="sheet">
+    <h3>Você recebeu um pedido de troca</h3>
+    <p><b>${t.por||'Um colega'}</b> pediu para passar este plantão para você:<br><br>
+    <b>${fmtD(s.data)}</b> (${s.dia}) · ${s.setor==='EME'?'Emergência':'Internação'} · ${s.turno} · ${rotuloPapel(s)}<br>
+    ${t.motivo?`<span style="color:var(--mut)">Motivo: ${t.motivo}</span>`:''}
+    ${pend.length>1?`<br><br><span style="color:var(--warn);font-weight:700">Há ${pend.length} pedidos aguardando sua resposta.</span>`:''}</p>
+    <p style="font-size:12.5px;color:var(--mut)">Ao aceitar, o plantão passa a ser seu e a coordenação é avisada. Você pode responder depois em "Meus plantões", mas responder agora evita pendências.</p>
+    <div class="row">
+      <button class="btn dan" onclick="respPopupTroca('${s.id}','recusar')">Recusar</button>
+      <button class="btn pri" onclick="respPopupTroca('${s.id}','aceitar')">Aceitar troca</button>
+    </div>
+    <div style="text-align:center;margin-top:8px"><button class="btn" style="font-size:12px;padding:6px 12px" onclick="adiarPopupTroca()">Responder depois</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function respPopupTroca(id, acao){
+  if(acao==='aceitar') aceitarTroca(id); else recusarTroca(id);
+  _trocaPopupAtivo=false;
+  const ov=document.getElementById('ov'); if(ov) ov.remove();
+  setTimeout(verificarTrocasPendentes, 300);   // encadeia próximo pedido, se houver
+}
+function adiarPopupTroca(){
+  _trocaPopupAtivo=false;
+  const ov=document.getElementById('ov'); if(ov) ov.remove();
 }
 function abrirMinhaSenha(){
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
