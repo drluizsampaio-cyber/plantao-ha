@@ -102,6 +102,26 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .now-head .sub{font-size:12px;opacity:.9}
 .tools{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 .finexp{color:var(--mut);font-size:11px;margin-left:4px}
+.pendbox{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0}
+.pendtit{font-size:12px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;margin-bottom:10px}
+.pendgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.pendchip{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--ice);text-align:left;cursor:default;opacity:.5}
+.pendchip.on{opacity:1;cursor:pointer;border-color:var(--warn);background:var(--warnbg)}
+.pendchip.on:hover{border-color:var(--royal)}
+.pendn{font-size:20px;font-weight:800;color:var(--ink);min-width:24px}
+.pendchip.on .pendn{color:var(--warn)}
+.pendl{font-size:12px;line-height:1.25;color:var(--mut);font-weight:600}
+.fechpanel{background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--mut);border-radius:12px;padding:14px;margin:12px 0}
+.fechtit{font-size:12px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+.fechest{font-size:14px;font-weight:700;margin-top:4px}
+.fechdica{font-size:12.5px;color:var(--royal);background:var(--ice);border-radius:8px;padding:8px 10px;margin-top:8px;font-weight:600}
+.altbox{margin-top:10px}
+.altbtn{width:100%;text-align:left;padding:9px 12px;border-radius:9px;border:1.5px solid var(--line);background:var(--ice);font-size:12.5px;font-weight:700;color:var(--mut);cursor:pointer}
+.altbtn.on{border-color:var(--warn);background:var(--warnbg);color:var(--warn)}
+.altlist{margin-top:8px;max-height:280px;overflow-y:auto}
+.altl{border-bottom:1px dashed var(--line);padding:8px 4px;font-size:12.5px}
+.altl:last-child{border-bottom:none}
+.altm{color:var(--mut);font-size:11.5px;margin-top:2px}
 .finsub{padding:4px 2px}
 .finsub-l{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:5px 8px;border-bottom:1px dashed var(--line)}
 .finsub-l:last-child{border-bottom:none}
@@ -253,12 +273,14 @@ let selSetor = 'TODOS';
 async function carregarNuvem(){
   const {data,error} = await supa.from('estado').select('chave,valor');
   if(error){ toast('Erro ao carregar dados do banco — verifique a internet.'); return false; }
-  S = {}; ESCALAS = {};
+  S = {}; ESCALAS = {}; FECH = {};
   let escalaAntiga = null;
   (data||[]).forEach(r=>{
     if(r.chave==='escala'){ escalaAntiga = r.valor; }                       // formato v10 (única)
     else if(r.chave.startsWith('escala:')){ ESCALAS[r.chave.slice(7)] = r.valor; } // formato v11 (por mês)
     else if(r.chave.startsWith('reg:')) S[r.chave.slice(4)]=r.valor;
+    else if(r.chave==='valores') S._valores=r.valor;                        // CORREÇÃO: valores salvos voltam a ser lidos
+    else if(r.chave.startsWith('fech:')) FECH[r.chave.slice(5)]=r.valor;    // validações de fechamento por mês
   });
   // MIGRAÇÃO v10 -> v11: só roda na PRIMEIRA vez (quando ainda não existe NENHUMA gaveta escala:*)
   // Blindagem: se já há qualquer escala mensal, a migração é ignorada para nunca sobrescrever.
@@ -277,7 +299,7 @@ function carregarAud(){
   if(!supa||!user) return;
   supa.from('auditoria').select('*').order('id',{ascending:false}).limit(300).then(({data,error})=>{
     if(error||!data) return;
-    const novo=data.map(r=>({ts:new Date(r.ts).toLocaleString('pt-BR'),quem:r.quem,acao:r.acao,detalhe:r.detalhe}));
+    const novo=data.map(r=>({ts:new Date(r.ts).toLocaleString('pt-BR'),iso:new Date(r.ts).toISOString(),quem:r.quem,acao:r.acao,detalhe:r.detalhe}));
     const mudou = novo.length!==AUD.length;
     AUD=novo;
     if(mudou && tab==='aud' && !document.getElementById('ov')) render();
@@ -311,6 +333,11 @@ function assinarTempoReal(){
 /* ---------- escala ativa: embutida (ago/2026) ou importada ---------- */
 let SHIFTS = [], MEDICOS = [], MES = {};
 let ESCALAS = {};        // { '2026-08': {shifts, info}, '2026-09': {...} }
+let COORD_EXTRA = [];    // nomes de coordenadores que também podem ser escalados (ex.: Magno)
+let FECH = {};           // { 'AAAA-MM': {parcial:{por,ts,iso}, final:{por,ts,iso}} }
+function escalaveis(){   // lista de nomes disponíveis para troca/definição de plantão
+  return [...new Set([...MEDICOS, ...COORD_EXTRA])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+}
 let mesAtivo = null;     // 'AAAA-MM' selecionado para exibição
 const MESES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 function ymAtual(){ const t=new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`; }
@@ -338,6 +365,11 @@ function loadEscala(){
   const imp = mesAtivo ? ESCALAS[mesAtivo] : null;
   SHIFTS = (imp && imp.shifts && imp.shifts.length) ? imp.shifts : DB.shifts;
   MEDICOS = [...new Set(SHIFTS.map(s=>s.medico).filter(m=>m && m!=='A DEFINIR'))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  // Coordenador(es) também podem ser escalados/substituir, sem deixar de ser coord.
+  // COORD_ESCALAVEL guarda o nome do coordenador logado para incluí-lo na lista.
+  if(user && user.tipo==='coord' && user.nome && !MEDICOS.includes(user.nome)){
+    COORD_EXTRA = [user.nome];
+  }
   const d0 = SHIFTS.map(s=>s.data).sort()[0];
   const [y,m] = d0.split('-').map(Number);
   MES = { y, m, dias:new Date(y,m,0).getDate(), label:MESES[m]+'/'+y, ym:`${y}-${String(m).padStart(2,'0')}`,
@@ -424,7 +456,7 @@ function autor(){
   return `${user.nome} (${p})`;
 }
 function log(acao, detalhe){
-  AUD.unshift({ts:new Date().toLocaleString('pt-BR'), quem:autor(), acao, detalhe});
+  AUD.unshift({ts:new Date().toLocaleString('pt-BR'), iso:new Date().toISOString(), quem:autor(), acao, detalhe});
   supa.from('auditoria').insert({quem:autor(), acao, detalhe})
     .then(({error})=>{ if(error) console.error('auditoria:',error); });
 }
@@ -683,6 +715,10 @@ function card(s){
   if (podeIntern && s.medico!=='A DEFINIR' && (isMine || user.tipo==='coord' || user.tipo==='adm')){
     acts += `<button class="btn" onclick="openIntern('${s.id}')">Internações${K.length?` (${K.length})`:''}</button>`;
   }
+  // Definir plantonista nos espaços "A DEFINIR" (só coordenação)
+  if (s.medico==='A DEFINIR' && user.tipo==='coord'){
+    acts += `<button class="btn pri" onclick="openTroca('${s.id}')">Definir plantonista</button>`;
+  }
   // Ocorrências: qualquer plantão (exceto A DEFINIR). Todos visualizam; registra o médico do plantão ou a coord.
   const O = x.ocor || [];
   if (s.medico!=='A DEFINIR'){
@@ -737,7 +773,7 @@ function openTroca(id){
   ov.innerHTML = `<div class="sheet">
     <h3>${s.medico==='A DEFINIR'?'Definir plantonista':(user.tipo==='med'?'Solicitar troca de plantão':'Registrar troca')}</h3>
     <p>${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)} · ${s.hini}–${s.hfim}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
-    <select id="sub">${MEDICOS.filter(m=>m!==s.medico).map(m=>`<option>${m}</option>`).join('')}</select>
+    <select id="sub">${escalaveis().filter(m=>m!==s.medico).map(m=>`<option>${m}</option>`).join('')}</select>
     <input id="obs" placeholder="Motivo / observação (opcional)">
     <div class="row">
       <button class="btn" onclick="closeOv()">Cancelar</button>
@@ -885,6 +921,100 @@ function ocorView(){
 }
 
 /* ---------- Fechamento ---------- */
+/* ====== PENDÊNCIAS (ir direto ao item) ====== */
+function pendencias(){
+  const internAg=[], trocasNV=[], defs=[];
+  SHIFTS.forEach(s=>{
+    const x=st(s.id);
+    if((x.intern||[]).some(i=>!i.val)) internAg.push(s);
+    if(x.troca && x.troca.status==='aceita' && !x.troca.vista) trocasNV.push(s);
+    if(statusOf(s)==='def') defs.push(s);
+  });
+  return {internAg, trocasNV, defs, ocor: totalOcorNaoVistas()};
+}
+function irPendencia(tipo){
+  const p=pendencias();
+  if(tipo==='ocor'){ go('ocor'); return; }
+  const lista = tipo==='intern' ? p.internAg : tipo==='troca' ? p.trocasNV : p.defs;
+  if(!lista.length){ toast('Nenhuma pendência deste tipo.'); return; }
+  const s=lista[0];
+  selDate=s.data; selSetor='TODOS'; tab='escala'; render(); window.scrollTo(0,0);
+  const resto = lista.length>1 ? ` (restam ${lista.length-1} depois desta)` : '';
+  if(tipo==='intern'){ setTimeout(()=>openIntern(s.id), 200); toast(`Internação de ${fmtD(s.data)} aberta para validação${resto}.`); }
+  else if(tipo==='troca') toast(`Troca de ${fmtD(s.data)} — confira e dê ciência no card${resto}.`);
+  else toast(`Vaga em aberto em ${fmtD(s.data)} — use "Definir plantonista"${resto}.`);
+}
+
+/* ====== FECHAMENTO EM DUAS ETAPAS (dia 25 parcial · dia 01 final) ====== */
+function fechDoMes(){ return FECH[MES.ym] || {}; }
+function salvarFech(obj){
+  FECH[MES.ym]=obj;
+  if(supa) supa.from('estado').upsert({chave:'fech:'+MES.ym, valor:obj, atualizado_por:autor()},{onConflict:'chave'})
+    .then(({error})=>{ if(error) toast('Falha ao salvar o fechamento.'); });
+}
+function alteracoesPos(){
+  const f=fechDoMes(); if(!f.parcial) return [];
+  const ignorar=['Exportação','liberada para conferência','fechado para pagamento','Conferência reaberta','Pagamento reaberto'];
+  return AUD.filter(e=> e.iso && e.iso > f.parcial.iso && !ignorar.some(g=>e.acao.includes(g)) );
+}
+function validarParcial(){
+  if(!confirm('Liberar a escala de '+MES.label+' para conferência do administrativo?\n\nO estado atual passa a ser a referência. Qualquer alteração feita depois disto aparecerá destacada para o administrativo.')) return;
+  const f=fechDoMes(), agora=new Date();
+  f.parcial={por:autor(), ts:agora.toLocaleString('pt-BR'), iso:agora.toISOString()};
+  delete f.final;
+  log('Escala liberada para conferência do administrativo', MES.label);
+  salvarFech(f); toast('Conferência liberada ao administrativo.'); render();
+}
+function validarFinal(){
+  const p=pendencias();
+  const tot=p.internAg.length+p.trocasNV.length+p.defs.length;
+  const aviso = tot? `\n\nATENÇÃO: ainda há ${tot} pendência(s) (internações a validar, trocas a conferir ou vagas a definir).`:'';
+  if(!confirm('Fechar '+MES.label+' para pagamento?'+aviso+'\n\nIsso sinaliza ao administrativo que os dados estão definitivos para solicitar as notas fiscais.')) return;
+  const f=fechDoMes(), agora=new Date();
+  f.final={por:autor(), ts:agora.toLocaleString('pt-BR'), iso:agora.toISOString()};
+  log('Mês fechado para pagamento', MES.label);
+  salvarFech(f); toast('Mês fechado para pagamento.'); render();
+}
+function reabrirFech(qual){
+  if(!confirm(qual==='final'?'Reabrir o mês (desfazer o fechamento para pagamento)?':'Reabrir a conferência (desfazer a liberação ao administrativo)?')) return;
+  const f=fechDoMes();
+  if(qual==='final'){ delete f.final; log('Pagamento reaberto pela coordenação', MES.label); }
+  else { delete f.final; delete f.parcial; log('Conferência reaberta pela coordenação', MES.label); }
+  salvarFech(f); toast('Reaberto.'); render();
+}
+let _verAlt=false;
+function toggleAlt(){ _verAlt=!_verAlt; render(); }
+function painelFechamento(){
+  if(user.tipo!=='coord' && user.tipo!=='adm') return '';
+  const f=fechDoMes(), alt=alteracoesPos();
+  const hoje=new Date().getDate();
+  let estado, cor;
+  if(f.final){ estado=`Fechado para pagamento · ${f.final.ts} por ${f.final.por}`; cor='var(--ok)'; }
+  else if(f.parcial){ estado=`Liberado para conferência · ${f.parcial.ts} por ${f.parcial.por}`; cor='var(--royal)'; }
+  else { estado='Em aberto — aguardando liberação da coordenação'; cor='var(--mut)'; }
+  const dica = (!f.parcial && hoje>=25) ? '<div class="fechdica">É dia '+hoje+': a coordenação já pode liberar a conferência do administrativo.</div>'
+             : (f.parcial && !f.final && hoje<=5) ? '<div class="fechdica">Início do mês: hora do ok final para o administrativo pedir as notas fiscais.</div>' : '';
+  const botoes = user.tipo==='coord' ? `<div class="tools" style="margin:10px 0 0">
+      ${!f.parcial?`<button class="btn pri" onclick="validarParcial()">Liberar conferência (dia 25)</button>`:''}
+      ${f.parcial&&!f.final?`<button class="btn ok" onclick="validarFinal()">Fechar para pagamento (dia 01)</button>`:''}
+      ${f.parcial&&!f.final?`<button class="btn" onclick="reabrirFech('parcial')">Reabrir conferência</button>`:''}
+      ${f.final?`<button class="btn" onclick="reabrirFech('final')">Reabrir mês</button>`:''}
+    </div>` : '';
+  const blocoAlt = f.parcial ? `
+    <div class="altbox">
+      <button class="altbtn${alt.length?' on':''}" onclick="toggleAlt()">
+        ${alt.length?`⚠️ ${alt.length} alteração(ões) após a liberação`:'Nenhuma alteração após a liberação ✓'} ${alt.length?(_verAlt?'▴':'▾'):''}
+      </button>
+      ${(_verAlt&&alt.length)?`<div class="altlist">${alt.map(e=>`
+        <div class="altl"><b>${e.acao}</b><div class="altm">${e.detalhe||''}</div>
+        <div class="altm">${e.quem} · ${e.ts}</div></div>`).join('')}</div>`:''}
+    </div>` : '';
+  return `<div class="fechpanel" style="border-left-color:${cor}">
+    <div class="fechtit">Fechamento de ${MES.label}</div>
+    <div class="fechest" style="color:${cor}">${estado}</div>
+    ${dica}${botoes}${blocoAlt}
+  </div>`;
+}
 function fechView(){
   const rows = MEDICOS.map(m=>{
     const mine = SHIFTS.filter(s=>executor(s)===m);
@@ -893,17 +1023,30 @@ function fechView(){
     return {m, prev:mine.length, ok:c('ok'), falta:c('falta'), pend:mine.length-c('ok')-c('falta'), ui:it.ui, uti:it.uti};
   }).filter(r=>r.prev>0);
   const tot = k => rows.reduce((a,r)=>a+r[k],0);
-  const indef = SHIFTS.filter(s=>statusOf(s)==='def').length;
+  const p = pendencias();
+  const verOcor = user.tipo==='coord';
+  const totPend = p.internAg.length + p.trocasNV.length + p.defs.length + (verOcor?p.ocor:0);
+  const chip = (n,rot,tipo) => `<button class="pendchip${n?' on':''}" ${n?`onclick="irPendencia('${tipo}')"`:'disabled'}>
+      <span class="pendn">${n}</span><span class="pendl">${rot}</span></button>`;
   return `
     <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
       <div class="kpi"><div class="v">${SHIFTS.length}</div><div class="l">Previstos</div></div>
-      <div class="kpi g"><div class="v">${tot('ok')}</div><div class="l">Confirmados</div></div>
+      <div class="kpi g"><div class="v">${tot('ok')}</div><div class="l">A pagar</div></div>
       <div class="kpi r"><div class="v">${tot('falta')}</div><div class="l">Faltas</div></div>
-      <div class="kpi y"><div class="v">${tot('pend')+indef}</div><div class="l">Pendentes</div></div>
       <div class="kpi"><div class="v">${tot('ui')}</div><div class="l">Int. UI ✓</div></div>
       <div class="kpi"><div class="v">${tot('uti')}</div><div class="l">Int. UTI ✓</div></div>
+      <div class="kpi y"><div class="v">${totPend}</div><div class="l">Pendências</div></div>
     </div>
-    ${internPendentes()?`<div style="background:var(--warnbg);color:var(--warn);font-size:13px;font-weight:700;border-radius:10px;padding:10px 14px;margin-bottom:10px">${internPendentes()} internação(ões) aguardando validação do administrativo — não entram nos totais nem nas exportações até serem validadas.</div>`:''}
+    ${painelFechamento()}
+    <div class="pendbox">
+      <div class="pendtit">Pendências${totPend?' — toque para ir direto ao item':' — nada pendente ✓'}</div>
+      <div class="pendgrid">
+        ${chip(p.internAg.length,'Internações a validar','intern')}
+        ${chip(p.trocasNV.length,'Trocas a conferir','troca')}
+        ${chip(p.defs.length,'Vagas a definir','def')}
+        ${verOcor?chip(p.ocor,'Ocorrências a ver','ocor'):''}
+      </div>
+    </div>
     <div class="tools">
       <button class="btn pri" onclick="exportCSV()">Exportar CSV (contas médicas)</button>
       <button class="btn pri" onclick="exportIntern()">Exportar internações (CSV)</button>
@@ -913,10 +1056,10 @@ function fechView(){
     </div>
     <p style="font-size:12px;color:var(--mut);margin:2px 2px 10px">Escala ativa: <b>${MES.label}</b>${MES.corrente?' (mês atual)':''}${MES.info?` · ${MES.info}`:''}. Meses arquivados: ${mesesDisponiveis().length}.</p>
     <div class="tblwrap"><table>
-      <thead><tr><th>Médico</th><th>Previsto</th><th>Realizado</th><th>Faltas</th><th>Pendentes</th><th>Int. UI ✓</th><th>Int. UTI ✓</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr><td>${r.m}</td><td class="n">${r.prev}</td><td class="n">${r.ok||'–'}</td><td class="n">${r.falta||'–'}</td><td class="n">${r.pend||'–'}</td><td class="n">${r.ui||'–'}</td><td class="n">${r.uti||'–'}</td></tr>`).join('')}</tbody>
+      <thead><tr><th>Médico</th><th>Previsto</th><th>A pagar</th><th>Faltas</th><th>Int. UI ✓</th><th>Int. UTI ✓</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td>${r.m}</td><td class="n">${r.prev}</td><td class="n">${r.ok||'–'}</td><td class="n">${r.falta||'–'}</td><td class="n">${r.ui||'–'}</td><td class="n">${r.uti||'–'}</td></tr>`).join('')}</tbody>
     </table></div>
-    <p style="font-size:12px;color:var(--mut);margin-top:10px">Confirmado = plantão com saída registrada pelo médico ou validado pela coordenação. Int. UI/UTI ✓ = somente internações <b>validadas pelo administrativo</b>, atribuídas ao executor. Registros aguardando validação não entram nos totais nem nos CSVs — cada internação validada sai no CSV com nº de atendimento, validador e data, para o pagamento extra.</p>`;
+    <p style="font-size:12px;color:var(--mut);margin-top:10px">A pagar = todo plantão escalado, salvo os marcados como falta pela coordenação. Int. UI/UTI ✓ = somente internações <b>validadas pelo administrativo</b>, atribuídas ao executor. Registros aguardando validação não entram nos totais nem nos CSVs — cada internação validada sai no CSV com nº de atendimento, validador e data, para o pagamento extra.</p>`;
 }
 /* ---------- Auditoria ---------- */
 function audView(){
@@ -1174,7 +1317,7 @@ function restoreEscala(){
 /* ---------- Internações (plantões da Emergência) ---------- */
 let internId=null;
 function openIntern(id){
-  internId=id; uSel='UI';
+  internId=id; uSel=null;   // sem pré-seleção: a unidade passa a ser escolha obrigatória
   const s=sh(id), K=st(id).intern||[];
   // Segurança: internação só existe para Plantonista 1 e 2 da Emergência
   if(!(s.setor==='EME' && (s.papel==='Plantonista 1' || s.papel==='Plantonista 2'))){
@@ -1190,9 +1333,9 @@ function openIntern(id){
       : 'Registre cada internação com a unidade de destino e o nº de atendimento. O pagamento extra considera apenas internações validadas pelo administrativo.'}</p>
     <div id="ilist">${internLista(st(id).intern||[])}</div>
     ${podeAdd?`
-    <label style="font-size:12px;font-weight:700;color:var(--mut)">Unidade de destino</label>
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Unidade de destino <span style="color:var(--danger)">*obrigatório</span></label>
     <div class="seg" style="margin-bottom:12px">
-      <button type="button" id="uUI" class="on" onclick="pickU('UI')">UI · Unidade aberta</button>
+      <button type="button" id="uUI" onclick="pickU('UI')">UI · Unidade aberta</button>
       <button type="button" id="uUTI" onclick="pickU('UTI')">UTI · Terapia intensiva</button>
     </div>
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Nº do atendimento</label>
@@ -1207,7 +1350,7 @@ function openIntern(id){
   ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
   document.body.appendChild(ov);
 }
-let uSel='UI';
+let uSel=null;
 function pickU(u){ uSel=u;
   document.getElementById('uUI').className = u==='UI'?'on':'';
   document.getElementById('uUTI').className = u==='UTI'?'on':'';
@@ -1255,6 +1398,8 @@ function invalIntern(ix){
 function addIntern(){
   const err=document.getElementById('ierr');
   const at=document.getElementById('iat').value.trim();
+  // OBRIGATÓRIO: a unidade de destino (UI ou UTI) precisa ser escolhida explicitamente
+  if(!uSel){ err.textContent='Selecione a unidade de destino: UI ou UTI. Esse registro é obrigatório.'; err.style.display='block'; return; }
   if(!at){ err.textContent='Informe o nº do atendimento.'; err.style.display='block'; return; }
   const K=st(internId).intern||[];
   // BLOQUEIO GLOBAL: o mesmo nº de atendimento não pode existir em NENHUM outro plantão do mês
