@@ -270,6 +270,14 @@ let tab = 'agora';
 let selDate = null;
 let selSetor = 'TODOS';
 
+// Carrega todos os usuários cadastrados (perfis med/coord) para que qualquer um possa
+// cobrir plantão em aberto ou receber pedido de troca, mesmo sem plantão no mês.
+async function carregarElenco(){
+  if(!supa) return;
+  const {data,error} = await supa.from('perfis').select('nome,perfil');
+  if(error || !data){ console.warn('elenco: não foi possível ler perfis', error); return; }
+  ELENCO = [...new Set(data.filter(p=>p && p.nome && (p.perfil==='med'||p.perfil==='coord')).map(p=>p.nome.trim()))];
+}
 async function carregarNuvem(){
   const {data,error} = await supa.from('estado').select('chave,valor');
   if(error){ toast('Erro ao carregar dados do banco — verifique a internet.'); return false; }
@@ -335,8 +343,13 @@ let SHIFTS = [], MEDICOS = [], MES = {};
 let ESCALAS = {};        // { '2026-08': {shifts, info}, '2026-09': {...} }
 let COORD_EXTRA = [];    // nomes de coordenadores que também podem ser escalados (ex.: Magno)
 let FECH = {};           // { 'AAAA-MM': {parcial:{por,ts,iso}, final:{por,ts,iso}} }
-function escalaveis(){   // lista de nomes disponíveis para troca/definição de plantão
-  return [...new Set([...MEDICOS, ...COORD_EXTRA])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+let ELENCO = [];         // TODOS os usuários cadastrados (med + coord) — podem ser escalados mesmo sem plantão no mês
+function escalaveis(){   // nomes disponíveis para troca/definição de plantão
+  // MEDICOS = quem está na escala do mês; ELENCO = todos os cadastrados (mesmo sem plantão no mês);
+  // COORD_EXTRA = coordenador logado. Assim qualquer usuário med pode cobrir vaga ou receber troca.
+  return [...new Set([...MEDICOS, ...ELENCO, ...COORD_EXTRA])]
+    .filter(n=>n && n!=='A DEFINIR')
+    .sort((a,b)=>a.localeCompare(b,'pt-BR'));
 }
 let mesAtivo = null;     // 'AAAA-MM' selecionado para exibição
 const MESES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -515,6 +528,7 @@ async function aposLogin(session){
     return;
   }
   user={tipo:p.perfil, nome:p.nome, email:p.email};
+  await carregarElenco();
   await carregarNuvem();
   assinarTempoReal();
   carregarAud();
