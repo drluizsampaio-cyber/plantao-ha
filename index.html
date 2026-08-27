@@ -144,6 +144,10 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .ocard{background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .ocard-txt{font-size:14px;line-height:1.45;color:var(--ink);white-space:pre-wrap}
 .ocard-meta{font-size:11.5px;color:var(--mut);margin-top:6px}
+.epibox{background:var(--ice);border:1.5px solid var(--royal);border-radius:12px;padding:12px 14px;margin:12px 0}
+.epitit{font-size:12px;font-weight:800;color:var(--royal);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px}
+.epitxt{font-size:12.5px;line-height:1.45;color:var(--mut);margin:0 0 8px}
+.epibtn{display:inline-block;text-align:center;text-decoration:none;width:100%}
 .navbadge{display:inline-block;width:7px;height:7px;border-radius:50%;background:#ff4444;margin-left:3px;vertical-align:top}
 .mesbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
 .mesbar-lbl{font-size:13px;font-weight:700;color:var(--mut)}
@@ -714,7 +718,7 @@ function card(s){
     acts += `<button class="btn pri blink" onclick="cienteTroca('${s.id}')">Troca confirmada — marcar como vista</button>`;
   }
   // Médico: pode passar plantão (troca). Coordenação: registrar troca + marcar/desmarcar falta.
-  if (s.medico!=='A DEFINIR' && stt!=='def'){
+  if (stt!=='def'){   // vale também para vagas já preenchidas pela coordenação
     if (user.tipo==='med' && isMine && !dataPassada(s.data))
       acts += `<button class="btn warn" onclick="openTroca('${s.id}')">Passar plantão</button>`;
     if (user.tipo==='coord'){
@@ -727,22 +731,26 @@ function card(s){
   // Internações: SOMENTE Plantonista 1 e 2 da Emergência
   const podeIntern = s.setor==='EME' && (s.papel==='Plantonista 1' || s.papel==='Plantonista 2');
   const K = x.intern || [];
-  if (podeIntern && s.medico!=='A DEFINIR' && (isMine || user.tipo==='coord' || user.tipo==='adm')){
+  if (podeIntern && stt!=='def' && (isMine || user.tipo==='coord' || user.tipo==='adm')){
     acts += `<button class="btn" onclick="openIntern('${s.id}')">Internações${K.length?` (${K.length})`:''}</button>`;
   }
-  // Definir plantonista nos espaços "A DEFINIR" (só coordenação)
-  if (s.medico==='A DEFINIR' && user.tipo==='coord'){
+  // Definir plantonista: SÓ enquanto a vaga estiver realmente em aberto
+  if (stt==='def' && user.tipo==='coord'){
     acts += `<button class="btn pri" onclick="openTroca('${s.id}')">Definir plantonista</button>`;
   }
   // Ocorrências: qualquer plantão (exceto A DEFINIR). Todos visualizam; registra o médico do plantão ou a coord.
   const O = x.ocor || [];
-  if (s.medico!=='A DEFINIR'){
+  if (stt!=='def'){
     const oNovas = O.filter(o=>!o.vista).length;
     acts += `<button class="btn" onclick="openOcor('${s.id}')">Ocorrências${O.length?` (${O.length})`:''}${(user.tipo==='coord'&&oNovas)?' •':''}</button>`;
   }
   const nUI=K.filter(i=>i.u==='UI'&&i.val).length, nUTI=K.filter(i=>i.u==='UTI'&&i.val).length, nAg=K.filter(i=>!i.val).length;
+  const tUI=K.filter(i=>i.u==='UI').length, tUTI=K.filter(i=>i.u==='UTI').length;
   const stamps = [
-    K.length ? `Internações validadas: <b>${nUI} UI</b> · <b>${nUTI} UTI</b>${nAg?` · <span style="color:var(--warn);font-weight:700">${nAg} aguardando</span>`:''}` : '',
+    K.length ? `Internações: <b>${K.length}</b> registrada(s) — <b>${tUI} UI</b> · <b>${tUTI} UTI</b>`
+               + (nAg ? ` · <span style="color:var(--warn);font-weight:700">${nAg} aguardando validação</span>`
+                      : ` · <span style="color:var(--ok);font-weight:700">todas validadas</span>`)
+               + (nAg && (nUI+nUTI) ? `<br><span style="color:var(--mut)">Já validadas: ${nUI} UI · ${nUTI} UTI</span>` : '') : '',
     (x.ocor&&x.ocor.length) ? `<span style="color:var(--warn)">⚠️ ${x.ocor.length} ocorrência(s) registrada(s)</span>` : '',
     tr ? (tr.status==='pendente'
             ? `<span style="color:var(--warn);font-weight:700">Troca solicitada — aguardando aceite de ${tr.para}</span>`
@@ -865,6 +873,16 @@ function openOcor(id){
     <p>${fmtD(s.data)} (${s.dia}) · ${s.setor==='EME'?'Emergência':'Internação'} · ${s.turno} · ${rotuloPapel(s)} · <b>${executor(s)}</b><br>
     Registre aqui eventos não habituais do plantão (intercorrências, faltas de insumo, problemas estruturais, casos de destaque). Fica visível a todos os médicos e à coordenação.</p>
     <div id="olist">${ocorLista(st(id).ocor||[], id)}</div>
+    <div class="epibox">
+      <div class="epitit">Registro no EPIMED</div>
+      <p class="epitxt">O EPIMED é a plataforma usada pela instituição para notificar eventos que
+      geram <b>risco assistencial</b> ao paciente (quedas, erros de medicação, falhas de processo,
+      near miss, eventos adversos). O registro aqui no Plantão HA serve à gestão da escala;
+      ele <b>não substitui</b> a notificação institucional.</p>
+      <p class="epitxt"><b>Esta ocorrência envolve risco assistencial?</b> Se sim, registre também no EPIMED:</p>
+      <a class="btn pri epibtn" href="https://patientsafety.epimedmonitor.com/Public/PSNotification?CultureCode=pt-BR&amp;TenantId=3EC18F65-5FAE-4477-AFC4-AE17C646F4EC&amp;NetworkId=47EDDED5-DF14-4DCC-A870-60DD4F114608&amp;HospitalId=7B7AEA4B-C3E9-4F10-9851-9E10B742AF48" target="_blank" rel="noopener noreferrer"
+         onclick="log('Abriu o formulário do EPIMED', descS(sh(ocorId)))">Abrir notificação no EPIMED ↗</a>
+    </div>
     ${podeAdd?`
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Nova ocorrência</label>
     <textarea id="otxt" rows="4" placeholder="Descreva o ocorrido…" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);font-family:inherit;font-size:14px;resize:vertical"></textarea>
