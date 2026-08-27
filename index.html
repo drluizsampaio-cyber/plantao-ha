@@ -414,7 +414,8 @@ function executor(s){ const x=st(s.id);
   return s.medico; }
 function statusOf(s){
   const x = st(s.id);
-  if ((s.medico==='A DEFINIR' && !x.executor)) return 'def';
+  // 'def' só enquanto ninguém assumiu: considera executor gravado OU troca aceita
+  if (s.medico==='A DEFINIR' && executor(s)==='A DEFINIR') return 'def';
   if (x.status==='Falta') return 'falta';
   // presunção: todo plantão escalado conta como realizado, salvo falta marcada pela coordenação
   return 'ok';
@@ -756,7 +757,7 @@ function card(s){
     <div class="body">
       <div class="top"><span class="med">${exec}</span><span class="chip ${cls}">${lbl}</span></div>
       <div class="papel">${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)}${trocado?' · substituindo '+s.medico:''}</div>
-      <div class="hrs">${fmtD(s.data)} (${s.dia}) · <b class="mono">${s.hini}–${s.hfim}</b></div>
+      <div class="hrs">${fmtD(s.data)} (${s.dia})${s.setor==='EME'?` · <b class="mono">${s.hini}–${s.hfim}</b>`:''}</div>
       ${stamps?`<div class="stamp">${stamps}</div>`:''}
       ${acts?`<div class="acts">${acts}</div>`:''}
     </div></div>`;
@@ -786,7 +787,7 @@ function openTroca(id){
   const ov = document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML = `<div class="sheet">
     <h3>${s.medico==='A DEFINIR'?'Definir plantonista':(user.tipo==='med'?'Solicitar troca de plantão':'Registrar troca')}</h3>
-    <p>${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)} · ${s.hini}–${s.hfim}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
+    <p>${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)}${s.setor==='EME'?` · ${s.hini}–${s.hfim}`:''}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
     <select id="sub">${escalaveis().filter(m=>m!==s.medico).map(m=>`<option>${m}</option>`).join('')}</select>
     <input id="obs" placeholder="Motivo / observação (opcional)">
     <div class="row">
@@ -807,7 +808,9 @@ function confirmaTroca(){
     toast('Solicitação enviada — aguardando aceite de '+sub+'.');
   } else {
     log((s.medico==='A DEFINIR'?'Plantonista definido':'Troca registrada pela coordenação')+' → '+sub+(obs?' · motivo: '+obs:''), descS(s));
-    closeOv(); save(trocaId,{troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'aceita', aceitaTs:agora, aceitoPor:autor(), vista:true}, obs});
+    // CORREÇÃO: grava também 'executor' para que a vaga deixe de constar como pendência
+    // e o plantão passe a contar como realizado (e pago) para quem o executou.
+    closeOv(); save(trocaId,{executor:sub, troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'aceita', aceitaTs:agora, aceitoPor:autor(), vista:true}, obs});
     toast('Troca registrada para '+sub+'.');
   }
 }
@@ -1030,7 +1033,7 @@ function painelFechamento(){
   </div>`;
 }
 function fechView(){
-  const rows = MEDICOS.map(m=>{
+  const rows = executantes().map(m=>{
     const mine = SHIFTS.filter(s=>executor(s)===m);
     const c = k => mine.filter(s=>statusOf(s)===k).length;
     const it = internDe(m);
@@ -1526,6 +1529,12 @@ function demonstrativo(nome){
 const SRV_ORDEM=['eme12_sem','eme12_fds','eme12_esp','eme3','hosp','presc_sem','presc_fds','eme_outro','uni_outro'];
 const SRV_ROT={eme12_sem:'Plantonista EME (semana)',eme12_fds:'Plantonista EME (fim de semana)',eme12_esp:'Plantonista EME (data especial)',eme3:'3º plantonista EME',hosp:'Hospitalista',presc_sem:'Prescritor (semana)',presc_fds:'Prescritor (fim de semana)',eme_outro:'Emergência (outro)',uni_outro:'Internação (outro)'};
 function BRL(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+// Quem REALMENTE executa plantões no mês (inclui coordenação e substitutos fora da escala original)
+function executantes(){
+  return [...new Set(SHIFTS.map(s=>executor(s)))]
+    .filter(n=>n && n!=='A DEFINIR')
+    .sort((a,b)=>a.localeCompare(b,'pt-BR'));
+}
 function toggleFin(ix){ const d=document.getElementById('findet'+ix), e=document.getElementById('finexp'+ix);
   if(d){ const open=d.style.display!=='none'; d.style.display=open?'none':'table-row'; if(e) e.textContent=open?'▾':'▴'; } }
 
@@ -1551,7 +1560,7 @@ function finView(){
       <p style="font-size:12px;color:var(--mut);margin-top:10px">Valores sujeitos a conferência da coordenação e do setor de contas médicas. Apenas internações validadas entram no cálculo.</p>`;
   }
   // Coordenação: todos os médicos + total geral + configurar valores
-  const linhas=MEDICOS.map(m=>({m, d:demonstrativo(m)})).filter(x=>x.d.linhas.length);
+  const linhas=executantes().map(m=>({m, d:demonstrativo(m)})).filter(x=>x.d.linhas.length);
   linhas.sort((a,b)=>b.d.total-a.d.total);
   const geral=linhas.reduce((a,x)=>a+x.d.total,0);
   return `
@@ -1584,7 +1593,7 @@ function exportFin(){
   const cols=[];
   SRV_ORDEM.forEach(k=>{ cols.push(['qtd_'+k, SRV_ROT[k]+' (qtd)']); cols.push(['val_'+k, SRV_ROT[k]+' (R$)']); });
   const head=['medico',...cols.map(c=>c[1]),'intern_ui_qtd','intern_uti_qtd','internacoes_bonus_R$','TOTAL_R$'].join(';')+'\n';
-  const linhas=MEDICOS.map(m=>{const d=demonstrativo(m); if(!d.linhas.length) return null;
+  const linhas=executantes().map(m=>{const d=demonstrativo(m); if(!d.linhas.length) return null;
     const campos=[m];
     SRV_ORDEM.forEach(k=>{ const g=d.porServico[k]; campos.push(g?g.qtd:0); campos.push(g?g.subtotal.toFixed(2):'0.00'); });
     campos.push(d.nUI, d.nUTI, d.totalBonus.toFixed(2), d.total.toFixed(2));
