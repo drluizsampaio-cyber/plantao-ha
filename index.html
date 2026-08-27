@@ -144,6 +144,7 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .ocard{background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .ocard-txt{font-size:14px;line-height:1.45;color:var(--ink);white-space:pre-wrap}
 .ocard-meta{font-size:11.5px;color:var(--mut);margin-top:6px}
+.rascbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--warnbg);border:1.5px solid var(--warn);color:var(--warn);border-radius:12px;padding:11px 14px;margin-bottom:10px;font-size:13px}
 .epibox{background:var(--ice);border:1.5px solid var(--royal);border-radius:12px;padding:12px 14px;margin:12px 0}
 .epitit{font-size:12px;font-weight:800;color:var(--royal);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px}
 .epitxt{font-size:12.5px;line-height:1.45;color:var(--mut);margin:0 0 8px}
@@ -285,13 +286,14 @@ async function carregarElenco(){
 async function carregarNuvem(){
   const {data,error} = await supa.from('estado').select('chave,valor');
   if(error){ toast('Erro ao carregar dados do banco — verifique a internet.'); return false; }
-  S = {}; ESCALAS = {}; FECH = {};
+  S = {}; ESCALAS = {}; FECH = {}; REGRAS = [];
   let escalaAntiga = null;
   (data||[]).forEach(r=>{
     if(r.chave==='escala'){ escalaAntiga = r.valor; }                       // formato v10 (única)
     else if(r.chave.startsWith('escala:')){ ESCALAS[r.chave.slice(7)] = r.valor; } // formato v11 (por mês)
     else if(r.chave.startsWith('reg:')) S[r.chave.slice(4)]=r.valor;
-    else if(r.chave==='valores') S._valores=r.valor;                        // CORREÇÃO: valores salvos voltam a ser lidos
+    else if(r.chave==='valores') S._valores=r.valor;
+    else if(r.chave==='regras') REGRAS = Array.isArray(r.valor)? r.valor : [];                        // CORREÇÃO: valores salvos voltam a ser lidos
     else if(r.chave.startsWith('fech:')) FECH[r.chave.slice(5)]=r.valor;    // validações de fechamento por mês
   });
   // MIGRAÇÃO v10 -> v11: só roda na PRIMEIRA vez (quando ainda não existe NENHUMA gaveta escala:*)
@@ -347,6 +349,7 @@ let SHIFTS = [], MEDICOS = [], MES = {};
 let ESCALAS = {};        // { '2026-08': {shifts, info}, '2026-09': {...} }
 let COORD_EXTRA = [];    // nomes de coordenadores que também podem ser escalados (ex.: Magno)
 let FECH = {};           // { 'AAAA-MM': {parcial:{por,ts,iso}, final:{por,ts,iso}} }
+let REGRAS = [];         // regras de repetição de escala (fixas)
 let ELENCO = [];         // TODOS os usuários cadastrados (med + coord) — podem ser escalados mesmo sem plantão no mês
 function escalaveis(){   // nomes disponíveis para troca/definição de plantão
   // MEDICOS = quem está na escala do mês; ELENCO = todos os cadastrados (mesmo sem plantão no mês);
@@ -358,7 +361,15 @@ function escalaveis(){   // nomes disponíveis para troca/definição de plantã
 let mesAtivo = null;     // 'AAAA-MM' selecionado para exibição
 const MESES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 function ymAtual(){ const t=new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`; }
-function mesesDisponiveis(){ return Object.keys(ESCALAS).filter(k=>ESCALAS[k]&&ESCALAS[k].shifts&&ESCALAS[k].shifts.length).sort(); }
+function mesesDisponiveis(){
+  return Object.keys(ESCALAS).filter(k=>{
+    const e=ESCALAS[k];
+    if(!e || !e.shifts || !e.shifts.length) return false;
+    if(e.rascunho && (!user || user.tipo!=='coord')) return false;  // rascunho: só a coordenação vê
+    return true;
+  }).sort();
+}
+function ehRascunho(ym){ return !!(ESCALAS[ym] && ESCALAS[ym].rascunho); }
 function rotuloMes(ym){ const [y,m]=ym.split('-').map(Number); return MESES[m]+'/'+y; }
 function wdPT(iso){ return ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(iso+'T12:00:00').getDay()]; }
 // Feriados nacionais (fixos + móveis calculados pela Páscoa)
@@ -375,9 +386,10 @@ function feriadoNome(iso){ return feriadosDe(Number(iso.slice(0,4)))[iso] || nul
 function loadEscala(){
   const disp = mesesDisponiveis();
   // define o mês ativo: mantém o já escolhido se ainda existir; senão mês corrente; senão o mais recente disponível
-  if(!mesAtivo || !ESCALAS[mesAtivo]){
+  if(mesAtivo && ESCALAS[mesAtivo] && ESCALAS[mesAtivo].rascunho && (!user || user.tipo!=='coord')) mesAtivo=null;
+  if(!mesAtivo || !ESCALAS[mesAtivo] || !disp.includes(mesAtivo)){
     const hoje = ymAtual();
-    mesAtivo = ESCALAS[hoje] ? hoje : (disp.length ? disp[disp.length-1] : null);
+    mesAtivo = disp.includes(hoje) ? hoje : (disp.length ? disp[disp.length-1] : null);
   }
   const imp = mesAtivo ? ESCALAS[mesAtivo] : null;
   SHIFTS = (imp && imp.shifts && imp.shifts.length) ? imp.shifts : DB.shifts;
@@ -391,6 +403,7 @@ function loadEscala(){
   const [y,m] = d0.split('-').map(Number);
   MES = { y, m, dias:new Date(y,m,0).getDate(), label:MESES[m]+'/'+y, ym:`${y}-${String(m).padStart(2,'0')}`,
           custom: !!(imp && imp.shifts && imp.shifts.length), info: imp ? imp.info : '',
+          rascunho: !!(imp && imp.rascunho),
           corrente: (`${y}-${String(m).padStart(2,'0')}`===ymAtual()) };
   if(!selDate) selDate = todayISO();   // só inicializa; não sobrescreve a navegação do usuário
 }
@@ -660,8 +673,22 @@ function escalaView(){
   if (selSetor!=='TODOS') list=list.filter(s=>s.setor===selSetor);
   const selLabel = new Date(selDate+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long'});
   const ferNome = feriadoNome(selDate);
+  const barraCoord = user.tipo==='coord' ? `
+    <div class="tools">
+      <button class="btn pri" onclick="openGerar()">Gerar escala de mês futuro</button>
+      <button class="btn" onclick="openRegras()">Configurar Regras de Escala${REGRAS.filter(r=>r.ativa).length?` (${REGRAS.filter(r=>r.ativa).length})`:''}</button>
+    </div>` : '';
+  const faixaRasc = (MES.rascunho && user.tipo==='coord') ? `
+    <div class="rascbar">
+      <div><b>RASCUNHO</b> — esta escala ainda não está visível para a equipe.
+      ${SHIFTS.filter(s=>s.medico==='A DEFINIR').length} posto(s) em aberto.</div>
+      <button class="btn ok" onclick="publicarEscala()">Publicar para a equipe</button>
+    </div>` : '';
+  const faixaPub = (!MES.rascunho && user.tipo==='coord' && MES.ym>ymAtual()) ? `
+    <div style="text-align:center;margin:-2px 0 10px"><button class="btn" style="padding:5px 12px;font-size:12px" onclick="voltarRascunho()">Voltar esta escala para rascunho</button></div>` : '';
   return `
     ${seletor}
+    ${faixaRasc}${faixaPub}${barraCoord}
     <div class="calgrid">${cal}</div>
     <h2 style="margin-top:4px">${cap(selLabel)}${ferNome?` <span style="color:var(--danger);font-size:12px;font-weight:700">· ${ferNome}</span>`:''}</h2>
     <div class="filters"><div class="seg">
@@ -737,6 +764,10 @@ function card(s){
   // Definir plantonista: SÓ enquanto a vaga estiver realmente em aberto
   if (stt==='def' && user.tipo==='coord'){
     acts += `<button class="btn pri" onclick="openTroca('${s.id}')">Definir plantonista</button>`;
+  }
+  // Remover posto da escala (coordenação): p/ feriado sem 3º plantonista, por exemplo
+  if (user.tipo==='coord' && stt==='def'){
+    acts += `<button class="btn dan" onclick="removerPosto('${s.id}')">Remover posto</button>`;
   }
   // Ocorrências: qualquer plantão (exceto A DEFINIR). Todos visualizam; registra o médico do plantão ou a coord.
   const O = x.ocor || [];
@@ -815,11 +846,21 @@ function confirmaTroca(){
     closeOv(); save(trocaId,{troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'pendente'}, obs});
     toast('Solicitação enviada — aguardando aceite de '+sub+'.');
   } else {
-    log((s.medico==='A DEFINIR'?'Plantonista definido':'Troca registrada pela coordenação')+' → '+sub+(obs?' · motivo: '+obs:''), descS(s));
+    const eraVaga = (s.medico==='A DEFINIR');
+    log((eraVaga?'Plantonista definido':'Troca registrada pela coordenação')+' → '+sub+(obs?' · motivo: '+obs:''), descS(s));
     // CORREÇÃO: grava também 'executor' para que a vaga deixe de constar como pendência
     // e o plantão passe a contar como realizado (e pago) para quem o executou.
     closeOv(); save(trocaId,{executor:sub, troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'aceita', aceitaTs:agora, aceitoPor:autor(), vista:true}, obs});
     toast('Troca registrada para '+sub+'.');
+    // Oferece criar uma regra de repetição a partir deste plantão (só datas futuras)
+    const hojeISO=new Date().toISOString().slice(0,10);
+    if(eraVaga && user.tipo==='coord' && s.data>=hojeISO){
+      setTimeout(()=>{
+        if(confirm(`${sub} foi definido(a) para ${fmtD(s.data)}.\n\nEsse plantão vai se repetir? (ex.: toda semana no mesmo dia)\n\nOK = criar uma regra de repetição · Cancelar = foi só desta vez.`)){
+          openNovaRegra({...s, medico:sub});
+        }
+      }, 350);
+    }
   }
 }
 function aceitarTroca(id){
@@ -1294,6 +1335,307 @@ function parseData(v){
   if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
   return null;
 }
+/* ================= GERAÇÃO DE ESCALA E REGRAS DE REPETIÇÃO ================= */
+// Estrutura padrão de um dia (conferida com as escalas de agosto e setembro)
+const GRADE_PADRAO = [
+  {setor:'EME', papel:'Plantonista 1', turno:'DIA'},
+  {setor:'EME', papel:'Plantonista 2', turno:'DIA'},
+  {setor:'EME', papel:'Plantonista 1', turno:'NOITE'},
+  {setor:'EME', papel:'Plantonista 2', turno:'NOITE'},
+  {setor:'EME', papel:'Diarista (3º plantonista)', turno:'DIA', soUteis:true},
+  {setor:'UNI', papel:'Hospitalista', turno:'DIA'},
+  {setor:'UNI', papel:'Plantonista', turno:'DIA'}
+];
+const PADROES = {
+  semanal:  'Toda semana no mesmo dia',
+  quinzenal:'A cada 15 dias (mesmo dia da semana)',
+  diario:   'Todos os dias',
+  uteis:    'Somente dias úteis (seg a sex)',
+  fds:      'Somente sábados e domingos'
+};
+function idMes(ym, n, pref){ return pref + ym.replace('-','') + '-' + String(n).padStart(3,'0'); }
+function ehUtil(iso){ const d=new Date(iso+'T12:00:00').getDay(); return d>=1 && d<=5; }
+function diasDoMes(ym){
+  const [y,m]=ym.split('-').map(Number); const total=new Date(y,m,0).getDate(); const out=[];
+  for(let i=1;i<=total;i++) out.push(`${ym}-${String(i).padStart(2,'0')}`);
+  return out;
+}
+// A regra cobre esta data?
+function regraCobre(r, iso){
+  if(!r.ativa) return false;
+  if(r.inicio && iso < r.inicio) return false;
+  if(r.fim && iso > r.fim) return false;
+  const dow = new Date(iso+'T12:00:00').getDay();
+  switch(r.padrao){
+    case 'diario': return true;
+    case 'uteis':  return ehUtil(iso);
+    case 'fds':    return !ehUtil(iso);
+    case 'semanal':return dow === r.dow;
+    case 'quinzenal': {
+      if(dow !== r.dow) return false;
+      const base=new Date((r.inicio||iso)+'T12:00:00'), alvo=new Date(iso+'T12:00:00');
+      const semanas = Math.round((alvo-base)/(7*86400000));
+      return semanas>=0 && semanas%2===0;
+    }
+    default: return false;
+  }
+}
+// Quem a regra indica para um posto específico numa data
+function medicoDaRegra(iso, setor, papel, turno){
+  const achou = REGRAS.find(r=> r.ativa && r.setor===setor && r.papel===papel && r.turno===turno && regraCobre(r, iso));
+  return achou ? achou.medico : null;
+}
+// Gera os plantões de um mês inteiro conforme a grade padrão + regras vigentes
+function gerarShiftsDoMes(ym){
+  const shifts=[]; let n=0;
+  diasDoMes(ym).forEach(iso=>{
+    GRADE_PADRAO.forEach(g=>{
+      if(g.soUteis && !ehUtil(iso)) return;         // 3º plantonista: só dias úteis
+      n++;
+      const noite = g.turno==='NOITE';
+      shifts.push({
+        id: idMes(ym, n, 'G'),
+        data: iso, dia: wdPT(iso), setor: g.setor, turno: g.turno, papel: g.papel,
+        medico: medicoDaRegra(iso, g.setor, g.papel, g.turno) || 'A DEFINIR',
+        hini: noite?'19:00':'07:00', hfim: noite?'07:00':'19:00'
+      });
+    });
+  });
+  return shifts;
+}
+function proximosMeses(qtd){
+  const out=[]; const hoje=new Date();
+  for(let i=1;i<=qtd;i++){
+    const d=new Date(hoje.getFullYear(), hoje.getMonth()+i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  return out;
+}
+/* ---------- Configurar Regras de Escala ---------- */
+function salvarRegras(){
+  if(supa) supa.from('estado').upsert({chave:'regras', valor:REGRAS, atualizado_por:autor()},{onConflict:'chave'})
+    .then(({error})=>{ if(error) toast('Falha ao salvar as regras.'); });
+}
+function rotuloRegra(r){
+  const dows=['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+  let quando = PADROES[r.padrao] || r.padrao;
+  if(r.padrao==='semanal') quando = 'Toda '+dows[r.dow];
+  if(r.padrao==='quinzenal') quando = 'A cada 15 dias, '+dows[r.dow];
+  return quando;
+}
+function openRegras(){
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
+    <h3>Regras de Escala</h3>
+    <p>Regras fixas preenchem automaticamente os postos quando um mês novo é gerado.
+    Elas valem <b>apenas para datas futuras</b> — escalas e registros já existentes nunca são alterados.</p>
+    <div id="regrasLista">${listaRegras()}</div>
+    <div class="row"><button class="btn" onclick="closeOv()">Fechar</button>
+      <button class="btn pri" onclick="openNovaRegra()">Nova regra</button></div>
+  </div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
+  document.body.appendChild(ov);
+}
+function listaRegras(){
+  const ativas=REGRAS.filter(r=>r.ativa), inativas=REGRAS.filter(r=>!r.ativa);
+  if(!REGRAS.length) return '<div class="empty" style="padding:14px">Nenhuma regra cadastrada.</div>';
+  const linha = r => `<div class="ocard" style="border-left-color:${r.ativa?'var(--royal)':'var(--line)'}">
+      <div class="ocard-txt"><b>${r.medico}</b> — ${r.setor==='EME'?'Emergência':'Internação'} · ${r.papel==='Plantonista'&&r.setor==='UNI'?'Prescritor(a)':r.papel} · ${r.turno}</div>
+      <div class="ocard-meta">${rotuloRegra(r)} · de ${fmtD(r.inicio)}${r.fim?' até '+fmtD(r.fim):' (sem data final)'}</div>
+      <div class="ocard-meta">criada por ${r.criadoPor} em ${r.criadoEm}${r.ativa?'':' · <b>ENCERRADA</b>'}</div>
+      ${r.ativa?`<button class="btn dan" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="encerrarRegra('${r.id}')">Encerrar regra</button>`:''}
+    </div>`;
+  return (ativas.length?`<div class="pendtit">Ativas</div>${ativas.map(linha).join('')}`:'')
+       + (inativas.length?`<div class="pendtit" style="margin-top:10px">Encerradas (histórico)</div>${inativas.map(linha).join('')}`:'');
+}
+function encerrarRegra(id){
+  const r=REGRAS.find(x=>x.id===id); if(!r) return;
+  if(!confirm(`Encerrar a regra de ${r.medico} (${rotuloRegra(r)})?\n\nAs escalas já geradas NÃO mudam. A regra deixa de valer para os próximos meses e fica no histórico para auditoria.`)) return;
+  r.ativa=false; r.encerradaPor=autor(); r.encerradaEm=new Date().toLocaleString('pt-BR');
+  log('Regra de escala encerrada', `${r.medico} · ${rotuloRegra(r)}`);
+  salvarRegras();
+  const box=document.getElementById('regrasLista'); if(box) box.innerHTML=listaRegras();
+  toast('Regra encerrada.');
+}
+// Formulário de nova regra. Pode vir pré-preenchido a partir de um plantão.
+let _regraBase=null;
+function openNovaRegra(base){
+  _regraBase = base || null;
+  const hoje=new Date().toISOString().slice(0,10);
+  const dowBase = base ? new Date(base.data+'T12:00:00').getDay() : new Date().getDay();
+  const dows=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const ov=document.getElementById('ov');
+  const html=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
+    <h3>Nova regra de escala</h3>
+    ${base?`<p>Baseada em: <b>${fmtD(base.data)}</b> · ${base.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(base)} · ${base.turno}</p>`:''}
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Médico</label>
+    <select id="rgMed">${escalaveis().map(m=>`<option ${base&&base.medico===m?'selected':''}>${m}</option>`).join('')}</select>
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Posto</label>
+    <select id="rgPosto">${GRADE_PADRAO.map((g,i)=>{
+      const sel = base && base.setor===g.setor && base.papel===g.papel && base.turno===g.turno;
+      const nome = (g.setor==='UNI'&&g.papel==='Plantonista')?'Prescritor(a)':g.papel;
+      return `<option value="${i}" ${sel?'selected':''}>${g.setor==='EME'?'Emergência':'Internação'} · ${nome} · ${g.turno}</option>`;
+    }).join('')}</select>
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Repetição</label>
+    <select id="rgPadrao" onchange="rgToggleDow()">${Object.entries(PADROES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+    <div id="rgDowBox">
+      <label style="font-size:12px;font-weight:700;color:var(--mut)">Dia da semana</label>
+      <select id="rgDow">${dows.map((d,i)=>`<option value="${i}" ${i===dowBase?'selected':''}>${d}</option>`).join('')}</select>
+    </div>
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Início (a regra só vale a partir daqui)</label>
+    <input id="rgIni" type="date" value="${base?base.data:hoje}" min="${hoje}">
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Tem data para terminar?</label>
+    <select id="rgTemFim" onchange="rgToggleFim()">
+      <option value="nao">Não — segue por tempo indeterminado</option>
+      <option value="sim">Sim — encerra numa data</option>
+    </select>
+    <div id="rgFimBox" style="display:none">
+      <label style="font-size:12px;font-weight:700;color:var(--mut)">Termina em</label>
+      <input id="rgFim" type="date" min="${hoje}">
+    </div>
+    <div id="rgerr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:6px 0"></div>
+    <div class="row"><button class="btn" onclick="openRegras()">Cancelar</button>
+      <button class="btn pri" onclick="salvarNovaRegra()">Salvar regra</button></div>
+  </div>`;
+  if(ov){ ov.innerHTML=html; }
+  else { const n=document.createElement('div'); n.className='overlay'; n.id='ov'; n.innerHTML=html;
+    n.addEventListener('click',e=>{ if(e.target===n) closeOv(); }); document.body.appendChild(n); }
+  rgToggleDow();
+}
+function rgToggleDow(){
+  const p=document.getElementById('rgPadrao').value;
+  const box=document.getElementById('rgDowBox');
+  if(box) box.style.display = (p==='semanal'||p==='quinzenal') ? '' : 'none';
+}
+function rgToggleFim(){
+  const v=document.getElementById('rgTemFim').value;
+  const box=document.getElementById('rgFimBox');
+  if(box) box.style.display = v==='sim' ? '' : 'none';
+}
+function salvarNovaRegra(){
+  const err=document.getElementById('rgerr');
+  const medico=document.getElementById('rgMed').value;
+  const g=GRADE_PADRAO[Number(document.getElementById('rgPosto').value)];
+  const padrao=document.getElementById('rgPadrao').value;
+  const dow=Number(document.getElementById('rgDow').value);
+  const inicio=document.getElementById('rgIni').value;
+  const temFim=document.getElementById('rgTemFim').value==='sim';
+  const fim=temFim?document.getElementById('rgFim').value:null;
+  const hoje=new Date().toISOString().slice(0,10);
+  if(!medico){ err.textContent='Escolha o médico.'; err.style.display='block'; return; }
+  if(!inicio){ err.textContent='Informe a data de início.'; err.style.display='block'; return; }
+  if(inicio<hoje){ err.textContent='A regra só pode valer para datas futuras. Escolha uma data a partir de hoje.'; err.style.display='block'; return; }
+  if(temFim && !fim){ err.textContent='Informe a data de término ou escolha "sem data final".'; err.style.display='block'; return; }
+  if(temFim && fim<inicio){ err.textContent='A data de término não pode ser anterior ao início.'; err.style.display='block'; return; }
+  const conflito = REGRAS.find(r=>r.ativa && r.setor===g.setor && r.papel===g.papel && r.turno===g.turno && r.padrao===padrao
+     && ((padrao!=='semanal'&&padrao!=='quinzenal') || r.dow===dow) && (!r.fim || r.fim>=inicio));
+  if(conflito && !confirm(`Já existe uma regra ativa para este mesmo posto (${conflito.medico}).\n\nAo salvar, a regra anterior será encerrada e a nova passa a valer a partir de ${fmtD(inicio)}. Continuar?`)) return;
+  if(conflito){ conflito.ativa=false; conflito.encerradaPor=autor(); conflito.encerradaEm=new Date().toLocaleString('pt-BR');
+    log('Regra substituída', `${conflito.medico} → ${medico} · ${g.papel}`); }
+  const nova={ id:'R'+Date.now(), medico, setor:g.setor, papel:g.papel, turno:g.turno, padrao, dow,
+    inicio, fim, ativa:true, criadoPor:autor(), criadoEm:new Date().toLocaleString('pt-BR') };
+  REGRAS.push(nova);
+  log('Regra de escala criada', `${medico} · ${g.setor} · ${g.papel} · ${g.turno} · ${rotuloRegra(nova)} · de ${fmtD(inicio)}${fim?' até '+fmtD(fim):' (sem fim)'}`);
+  salvarRegras();
+  const n = aplicarRegraFuturo(nova);
+  toast(n? `Regra salva — ${n} posto(s) futuro(s) preenchido(s).` : 'Regra salva. Valerá para os próximos meses gerados.');
+  openRegras();
+}
+// Aplica a regra APENAS a datas futuras e SOMENTE em postos ainda em aberto (A DEFINIR).
+// Nunca altera plantão já atribuído nem registro anterior.
+function aplicarRegraFuturo(r){
+  const hoje=new Date().toISOString().slice(0,10);
+  let n=0; const mesesTocados=new Set();
+  Object.keys(ESCALAS).forEach(ym=>{
+    const e=ESCALAS[ym]; if(!e||!e.shifts) return;
+    e.shifts.forEach(s=>{
+      if(s.data<=hoje) return;                                   // passado e hoje: intocáveis
+      if(s.medico!=='A DEFINIR') return;                         // já tem alguém: não mexe
+      if(st(s.id).executor || (st(s.id).troca&&st(s.id).troca.status==='aceita')) return;
+      if(s.setor!==r.setor||s.papel!==r.papel||s.turno!==r.turno) return;
+      if(!regraCobre(r, s.data)) return;
+      s.medico=r.medico; n++; mesesTocados.add(ym);
+    });
+  });
+  mesesTocados.forEach(ym=>{ if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'}); });
+  if(n){ log('Regra aplicada a postos futuros em aberto', `${r.medico} · ${n} posto(s) · meses: ${[...mesesTocados].map(rotuloMes).join(', ')}`); loadEscala(); }
+  return n;
+}
+
+function openGerar(){
+  const opcoes = proximosMeses(6).map(ym=>{
+    const existe = ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length;
+    return `<option value="${ym}" ${existe?'disabled':''}>${rotuloMes(ym)}${existe?' — já existe':''}</option>`;
+  }).join('');
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  ov.innerHTML=`<div class="sheet">
+    <h3>Gerar escala de mês futuro</h3>
+    <p>O app monta a grade completa do mês com todos os postos em <b>A DEFINIR</b>, seguindo a estrutura habitual:
+    2 plantonistas de dia e 2 de noite na Emergência, 3º plantonista nos dias úteis, hospitalista e prescritor na Internação.
+    As <b>regras de escala</b> já cadastradas preenchem automaticamente quem for fixo.</p>
+    <p style="color:var(--mut);font-size:12.5px">O mês nasce como <b>rascunho</b> — só a coordenação vê — até você publicar.
+    Meses que já têm escala não podem ser gerados (aparecem desabilitados).</p>
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Mês</label>
+    <select id="gerMes">${opcoes}</select>
+    <div id="gererr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:6px 0"></div>
+    <div class="row">
+      <button class="btn" onclick="closeOv()">Cancelar</button>
+      <button class="btn pri" onclick="gerarEscala()">Gerar rascunho</button>
+    </div>
+  </div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
+  document.body.appendChild(ov);
+}
+function gerarEscala(){
+  const ym=document.getElementById('gerMes').value;
+  const err=document.getElementById('gererr');
+  if(!ym){ err.textContent='Selecione o mês.'; err.style.display='block'; return; }
+  // PROTEÇÃO: nunca sobrescrever um mês existente
+  if(ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length){
+    err.textContent='Já existe escala para '+rotuloMes(ym)+'. A geração não sobrescreve meses existentes.';
+    err.style.display='block'; return;
+  }
+  const shifts=gerarShiftsDoMes(ym);
+  const preenchidos=shifts.filter(s=>s.medico!=='A DEFINIR').length;
+  if(!confirm(`Gerar a escala de ${rotuloMes(ym)}?\n\n${shifts.length} plantões serão criados.\n${preenchidos} já preenchidos pelas regras fixas; ${shifts.length-preenchidos} ficarão como A DEFINIR.\n\nO mês nasce como RASCUNHO, visível só para a coordenação.\nNenhum outro mês é afetado.`)) return;
+  closeOv();
+  const info=`gerada pelo app em ${new Date().toLocaleString('pt-BR')} por ${autor()} — ${shifts.length} plantões`;
+  log('Escala GERADA para '+rotuloMes(ym), info+` · ${preenchidos} preenchidos por regras`);
+  ESCALAS[ym]={shifts, info, rascunho:true};
+  if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'})
+    .then(({error})=>{ if(error) toast('Falha ao salvar a escala gerada.'); else toast('Rascunho de '+rotuloMes(ym)+' criado.'); });
+  mesAtivo=ym; loadEscala(); selDate=ym+'-01'; selSetor='TODOS'; render(); window.scrollTo(0,0);
+}
+function publicarEscala(){
+  const ym=MES.ym;
+  if(!ehRascunho(ym)){ toast('Esta escala já está publicada.'); return; }
+  const vagas=SHIFTS.filter(s=>s.medico==='A DEFINIR').length;
+  if(!confirm(`Publicar a escala de ${rotuloMes(ym)} para toda a equipe?${vagas?`\n\nAinda há ${vagas} posto(s) em A DEFINIR — eles ficarão visíveis como vaga em aberto.`:''}`)) return;
+  delete ESCALAS[ym].rascunho;
+  log('Escala PUBLICADA para a equipe', rotuloMes(ym)+` · ${vagas} vaga(s) em aberto`);
+  if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'})
+    .then(({error})=>{ if(error) toast('Falha ao publicar.'); else toast('Escala publicada — a equipe já pode ver.'); });
+  loadEscala(); render();
+}
+function voltarRascunho(){
+  const ym=MES.ym;
+  if(!confirm(`Voltar a escala de ${rotuloMes(ym)} para rascunho? Ela deixará de aparecer para a equipe até ser publicada de novo.`)) return;
+  ESCALAS[ym].rascunho=true;
+  log('Escala voltou para rascunho', rotuloMes(ym));
+  if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'});
+  loadEscala(); render(); toast('Voltou para rascunho.');
+}
+// Remover um posto (ex.: 3º plantonista em feriado que não terá)
+function removerPosto(id){
+  const s=sh(id); if(!s) return;
+  if(!confirm(`Remover este posto da escala?\n\n${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)} · ${s.turno}\n\nUse isto para feriados em que não haverá 3º plantonista, por exemplo.`)) return;
+  const ym=MES.ym;
+  ESCALAS[ym].shifts = ESCALAS[ym].shifts.filter(x=>x.id!==id);
+  log('Posto removido da escala', descS(s));
+  if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'});
+  loadEscala(); render(); toast('Posto removido.');
+}
+
 function importarEscala(){
   const err=document.getElementById('imperr');
   const raw=document.getElementById('imptxt').value.replace(/^\uFEFF/,'').trim();
