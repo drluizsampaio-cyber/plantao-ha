@@ -997,6 +997,79 @@ function ocorView(){
 }
 
 /* ---------- Fechamento ---------- */
+/* ====== AUDITORIA POR AMOSTRAGEM (5%) — SÓ COORDENAÇÃO ====== */
+// Sorteio determinístico: a mesma amostra em qualquer aparelho, sem mudar a cada tela.
+// Baseado num hash do nº de atendimento + mês, então não depende de ordem nem de sorte do render.
+function hashStr(s){ let h=2166136261; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0); }
+function todasInternacoesDoMes(){
+  const out=[];
+  SHIFTS.forEach(s=>{ (st(s.id).intern||[]).forEach((i,ix)=>out.push({s, i, ix})); });
+  return out;
+}
+function amostraAuditoria(){
+  const todas=todasInternacoesDoMes();
+  if(!todas.length) return [];
+  const n=Math.max(1, Math.ceil(todas.length*0.05));   // 5%, no mínimo 1
+  return todas
+    .map(x=>({...x, _h:hashStr(MES.ym+'|'+x.i.at)}))
+    .sort((a,b)=>a._h-b._h)
+    .slice(0,n)
+    .sort((a,b)=>a.s.data.localeCompare(b.s.data));
+}
+function marcarAuditoria(shiftId, at, res){
+  const motivo = res==='glosa' ? (prompt('Descreva o motivo da glosa (falta de protocolo, conduta ou prescrição inadequada):')||'').trim() : '';
+  if(res==='glosa' && motivo.length<3){ toast('Glosa cancelada: é preciso descrever o motivo.'); return; }
+  const K=[...(st(shiftId).intern||[])];
+  const ix=K.findIndex(i=>i.at===at); if(ix<0) return;
+  K[ix]={...K[ix], aud:{res, motivo, por:autor(), ts:new Date().toLocaleString('pt-BR')}};
+  log(res==='glosa'?'Auditoria: internação GLOSADA':'Auditoria: internação conforme',
+      `atendimento ${at} · ${descS(sh(shiftId))}`+(motivo?` · motivo: ${motivo}`:''));
+  S[shiftId]={...st(shiftId), intern:K}; syncReg(shiftId);
+  toast(res==='glosa'?'Internação glosada — não será paga.':'Internação marcada como conforme.');
+  render();
+}
+function desfazerAuditoria(shiftId, at){
+  const K=[...(st(shiftId).intern||[])];
+  const ix=K.findIndex(i=>i.at===at); if(ix<0) return;
+  const c={...K[ix]}; delete c.aud; K[ix]=c;
+  log('Auditoria desfeita', `atendimento ${at} · ${descS(sh(shiftId))}`);
+  S[shiftId]={...st(shiftId), intern:K}; syncReg(shiftId);
+  toast('Auditoria desfeita.'); render();
+}
+let _verAud=false;
+function toggleAud(){ _verAud=!_verAud; render(); }
+function painelAuditoriaAmostra(){
+  if(user.tipo!=='coord') return '';           // SIGILO: só a coordenação vê
+  const am=amostraAuditoria();
+  if(!am.length) return '';
+  const total=todasInternacoesDoMes().length;
+  const pend=am.filter(x=>!x.i.aud).length;
+  const glosa=am.filter(x=>x.i.aud&&x.i.aud.res==='glosa').length;
+  return `<div class="fechpanel" style="border-left-color:var(--royal)">
+    <div class="fechtit">Auditoria por amostragem — ${MES.label}</div>
+    <div class="fechest" style="color:var(--royal)">${am.length} de ${total} internações sorteadas (5%)</div>
+    <div class="fechdica">Confidencial — visível apenas para a coordenação. Verifique abertura de protocolo, conduta e prescrição. Internação glosada não é paga ao plantonista.</div>
+    <button class="altbtn${pend?' on':''}" style="margin-top:10px" onclick="toggleAud()">
+      ${pend?`${pend} caso(s) aguardando sua análise`:`Todos analisados${glosa?` · ${glosa} glosado(s)`:''}`} ${_verAud?'▴':'▾'}
+    </button>
+    ${_verAud?`<div class="altlist" style="max-height:420px">${am.map(x=>`
+      <div class="ocard" style="border-left-color:${x.i.aud?(x.i.aud.res==='glosa'?'var(--danger)':'var(--ok)'):'var(--warn)'}">
+        <div class="ocard-txt"><b>${x.i.u}</b> · atendimento <b class="mono">${x.i.at}</b><br>
+        ${fmtD(x.s.data)} (${x.s.dia}) · ${x.s.turno} · ${x.s.papel} · <b>${executor(x.s)}</b></div>
+        <div class="ocard-meta">${x.i.prot ? (x.i.prot.houve
+            ? `Protocolo aberto: <b>${String(x.i.prot.qual).replace(/</g,'&lt;')}</b>`
+            : '<b style="color:var(--warn)">Plantonista informou que NÃO houve protocolo</b>')
+          : '<span style="color:var(--mut)">Registro anterior à pergunta de protocolo</span>'}</div>
+        ${x.i.aud?`<div class="ocard-meta"><b>${x.i.aud.res==='glosa'?'GLOSADA':'Conforme'}</b> · ${x.i.aud.por} · ${x.i.aud.ts}${x.i.aud.motivo?`<br>Motivo: ${String(x.i.aud.motivo).replace(/</g,'&lt;')}`:''}</div>
+          <button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="desfazerAuditoria('${x.s.id}','${x.i.at}')">Desfazer análise</button>`
+        :`<div style="display:flex;gap:6px;margin-top:8px">
+            <button class="btn ok" style="padding:5px 12px;font-size:12px" onclick="marcarAuditoria('${x.s.id}','${x.i.at}','ok')">Conforme</button>
+            <button class="btn dan" style="padding:5px 12px;font-size:12px" onclick="marcarAuditoria('${x.s.id}','${x.i.at}','glosa')">Glosar pagamento</button>
+          </div>`}
+      </div>`).join('')}</div>`:''}
+  </div>`;
+}
+
 /* ====== PENDÊNCIAS (ir direto ao item) ====== */
 function pendencias(){
   const internAg=[], trocasNV=[], defs=[];
@@ -1114,6 +1187,7 @@ function fechView(){
       <div class="kpi y"><div class="v">${totPend}</div><div class="l">Pendências</div></div>
     </div>
     ${painelFechamento()}
+    ${painelAuditoriaAmostra()}
     <div class="pendbox">
       <div class="pendtit">Pendências${totPend?' — toque para ir direto ao item':' — nada pendente ✓'}</div>
       <div class="pendgrid">
@@ -1247,6 +1321,13 @@ function exportIntern(){
   toast(`CSV gerado: ${linhas.length} internação(ões) — ${val} validada(s), ${pend} pendente(s).`);
 }
 
+// Postos de plantonista da Emergência que vão para a folha física.
+// A folha é por POSTO (não por pessoa): trocas não obrigam a refazer o documento.
+function folhaPostos(){
+  const ordemTurno = t => t==='DIA'?0:1;
+  return SHIFTS.filter(s=>s.setor==='EME')
+    .sort((a,b)=> a.data.localeCompare(b.data) || ordemTurno(a.turno)-ordemTurno(b.turno) || a.papel.localeCompare(b.papel,'pt-BR'));
+}
 function printFolha(){
   log('Impressão da folha de assinatura', MES.label);
   const pa=document.getElementById('printArea');
@@ -1255,9 +1336,9 @@ function printFolha(){
       <h1>REGISTRO FÍSICO DE PLANTÕES – ${MES.label.toUpperCase()}</h1>
       <div class="pi">Hospital Alagoinhas · Assinar na entrada e na saída de cada plantão · Documento de evidência para auditoria e contas médicas</div>
     </div></div>
-    <table><thead><tr><th>Data</th><th>Dia</th><th>Turno / Função</th><th>Médico</th><th>Entrada</th><th>Saída</th><th>Assinatura</th></tr></thead>
-    <tbody>${SHIFTS.filter(s=>s.setor==='EME' && s.medico!=='A DEFINIR').sort((a,b)=>a.data.localeCompare(b.data)||a.turno.localeCompare(b.turno)).map(s=>`<tr><td>${fmtD(s.data)}</td><td>${s.dia}</td><td>${s.turno} · ${s.papel}</td><td>${executor(s)}</td><td class="sig" style="width:55px"></td><td class="sig" style="width:55px"></td><td class="sig"></td></tr>`).join('')}</tbody></table>
-    <p style="font-size:11px;color:#666;margin-top:8px">Somente plantonistas da Emergência (registram entrada/saída). Hospitalista e prescritor da Internação não constam nesta folha.</p>`;
+    <table><thead><tr><th>Data</th><th>Dia</th><th>Função</th><th>Horário</th><th>Nome do plantonista</th><th>Assinatura e carimbo</th></tr></thead>
+    <tbody>${folhaPostos().map(s=>`<tr><td>${fmtD(s.data)}</td><td>${s.dia}</td><td>${s.papel}</td><td class="mono">${s.hini} – ${s.hfim}</td><td class="sig"></td><td class="sig"></td></tr>`).join('')}</tbody></table>
+    <p style="font-size:11px;color:#666;margin-top:8px">Somente postos de plantonista da Emergência. Os horários já vêm preenchidos conforme a escala. O nome é preenchido à mão por quem efetivamente cumprir o plantão — assim a folha continua válida mesmo havendo trocas. Hospitalista e prescritor da Internação não constam nesta folha.</p>`;
   window.print();
 }
 
@@ -1379,6 +1460,24 @@ function regraCobre(r, iso){
     }
     default: return false;
   }
+}
+// Duas regras só conflitam se colocarem médicos diferentes NO MESMO POSTO E NA MESMA DATA.
+// Revezamentos 15/15 (quinzenais alternados) NÃO conflitam — cada um cai em semanas diferentes.
+function datasEmComum(a, b){
+  const ini = (a.inicio > b.inicio ? a.inicio : b.inicio);
+  let fim;
+  if(a.fim && b.fim) fim = (a.fim < b.fim ? a.fim : b.fim);
+  else fim = (a.fim || b.fim || null);
+  if(fim && fim < ini) return false;               // períodos não se tocam
+  // varre até 1 ano a partir do início comum (ou até o fim, se houver)
+  const d0=new Date(ini+'T12:00:00');
+  const limite = new Date(d0); limite.setDate(limite.getDate()+366);
+  const dLim = fim ? new Date(Math.min(new Date(fim+'T12:00:00'), limite)) : limite;
+  for(let d=new Date(d0); d<=dLim; d.setDate(d.getDate()+1)){
+    const iso=d.toISOString().slice(0,10);
+    if(regraCobre(a, iso) && regraCobre(b, iso)) return true;
+  }
+  return false;
 }
 // Quem a regra indica para um posto específico numa data
 function medicoDaRegra(iso, setor, papel, turno){
@@ -1527,9 +1626,10 @@ function salvarNovaRegra(){
   if(inicio<hoje){ err.textContent='A regra só pode valer para datas futuras. Escolha uma data a partir de hoje.'; err.style.display='block'; return; }
   if(temFim && !fim){ err.textContent='Informe a data de término ou escolha "sem data final".'; err.style.display='block'; return; }
   if(temFim && fim<inicio){ err.textContent='A data de término não pode ser anterior ao início.'; err.style.display='block'; return; }
-  const conflito = REGRAS.find(r=>r.ativa && r.setor===g.setor && r.papel===g.papel && r.turno===g.turno && r.padrao===padrao
-     && ((padrao!=='semanal'&&padrao!=='quinzenal') || r.dow===dow) && (!r.fim || r.fim>=inicio));
-  if(conflito && !confirm(`Já existe uma regra ativa para este mesmo posto (${conflito.medico}).\n\nAo salvar, a regra anterior será encerrada e a nova passa a valer a partir de ${fmtD(inicio)}. Continuar?`)) return;
+  const nova0={ medico, setor:g.setor, papel:g.papel, turno:g.turno, padrao, dow, inicio, fim, ativa:true };
+  const conflito = REGRAS.find(r=> r.ativa && r.setor===g.setor && r.papel===g.papel && r.turno===g.turno
+     && datasEmComum(r, nova0));
+  if(conflito && !confirm(`Já existe uma regra ativa que cai nas MESMAS DATAS deste posto (${conflito.medico} — ${rotuloRegra(conflito)}).\n\nAo salvar, a regra anterior será encerrada e a nova passa a valer a partir de ${fmtD(inicio)}. Continuar?\n\n(Revezamentos de 15 em 15 dias não geram este aviso: basta que os inícios estejam em semanas diferentes.)`)) return;
   if(conflito){ conflito.ativa=false; conflito.encerradaPor=autor(); conflito.encerradaEm=new Date().toLocaleString('pt-BR');
     log('Regra substituída', `${conflito.medico} → ${medico} · ${g.papel}`); }
   const nova={ id:'R'+Date.now(), medico, setor:g.setor, papel:g.papel, turno:g.turno, padrao, dow,
@@ -1693,14 +1793,27 @@ function restoreEscala(){
 
 /* ---------- Internações (plantões da Emergência) ---------- */
 let internId=null;
+// Janela de lançamento de internações: fecha 24h após o fim do mês OU no fechamento para pagamento.
+function bloqueioIntern(s){
+  if(!s) return null;
+  const ym=s.data.slice(0,7);
+  const f=(FECH[ym]||{});
+  if(f.final) return {motivo:`o mês ${rotuloMes(ym)} já foi fechado para pagamento (${f.final.ts})`, tipo:'fechado'};
+  const [y,mm]=ym.split('-').map(Number);
+  const limite=new Date(y, mm, 2, 0, 0, 0);   // 2º dia do mês seguinte 00h = 24h de tolerância
+  if(new Date() > limite) return {motivo:`o prazo de 24h após o fim de ${rotuloMes(ym)} já passou (encerrou em ${limite.toLocaleString('pt-BR')})`, tipo:'prazo'};
+  return null;
+}
 function openIntern(id){
-  internId=id; uSel=null;   // sem pré-seleção: a unidade passa a ser escolha obrigatória
+  internId=id; uSel=null; protSel=null;   // sem pré-seleção: unidade e protocolo são escolhas obrigatórias
   const s=sh(id), K=st(id).intern||[];
   // Segurança: internação só existe para Plantonista 1 e 2 da Emergência
   if(!(s.setor==='EME' && (s.papel==='Plantonista 1' || s.papel==='Plantonista 2'))){
     toast('Internações são registradas apenas pelos plantonistas 1 e 2 da Emergência.'); return;
   }
-  const podeAdd = (user.tipo==='med' && executor(s)===user.nome) || user.tipo==='coord';
+  const bloq = bloqueioIntern(s);
+  const podeAdd = ((user.tipo==='med' && executor(s)===user.nome) || user.tipo==='coord')
+                  && !(bloq && user.tipo==='med');     // médico não lança fora do prazo
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Internações do plantão</h3>
@@ -1709,6 +1822,10 @@ function openIntern(id){
       ? 'Confira cada registro no sistema e valide. Somente internações validadas entram no fechamento e nas exportações para contas médicas.'
       : 'Registre cada internação com a unidade de destino e o nº de atendimento. O pagamento extra considera apenas internações validadas pelo administrativo.'}</p>
     <div id="ilist">${internLista(st(id).intern||[])}</div>
+    ${bloq?`<div class="rascbar" style="display:block">
+      <b>Período encerrado.</b> Não é possível incluir novas internações porque ${bloq.motivo}.
+      ${user.tipo==='coord'?'<br><span style="font-weight:400">Como coordenação, você ainda pode lançar excepcionalmente — a ação fica registrada na auditoria.</span>':'<br><span style="font-weight:400">Procure a coordenação se houver um lançamento legítimo pendente.</span>'}
+    </div>`:''}
     ${podeAdd?`
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Unidade de destino <span style="color:var(--danger)">*obrigatório</span></label>
     <div class="seg" style="margin-bottom:12px">
@@ -1716,7 +1833,16 @@ function openIntern(id){
       <button type="button" id="uUTI" onclick="pickU('UTI')">UTI · Terapia intensiva</button>
     </div>
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Nº do atendimento</label>
-    <input id="iat" inputmode="numeric" placeholder="Ex.: 2026084512" onkeydown="if(event.key==='Enter')addIntern()">
+    <input id="iat" inputmode="numeric" placeholder="Ex.: 2026084512">
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Houve necessidade de abertura de algum protocolo assistencial? <span style="color:var(--danger)">*obrigatório</span></label>
+    <div class="seg" style="margin-bottom:10px">
+      <button type="button" id="pNao" onclick="pickProt(false)">Não</button>
+      <button type="button" id="pSim" onclick="pickProt(true)">Sim</button>
+    </div>
+    <div id="protQualBox" style="display:none">
+      <label style="font-size:12px;font-weight:700;color:var(--mut)">Qual protocolo?</label>
+      <input id="iprot" placeholder="Ex.: sepse, dor torácica, AVC, trauma…">
+    </div>
     <div id="ierr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin-bottom:10px"></div>
     <div class="row">
       <button class="btn" onclick="closeOv()">Fechar</button>
@@ -1727,7 +1853,13 @@ function openIntern(id){
   ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
   document.body.appendChild(ov);
 }
-let uSel=null;
+let uSel=null, protSel=null;
+function pickProt(v){ protSel=v;
+  const bs=document.getElementById('pSim'), bn=document.getElementById('pNao'), box=document.getElementById('protQualBox');
+  if(bs) bs.className = v?'on':'';
+  if(bn) bn.className = v?'':'on';
+  if(box) box.style.display = v?'':'none';
+}
 function pickU(u){ uSel=u;
   document.getElementById('uUI').className = u==='UI'?'on':'';
   document.getElementById('uUTI').className = u==='UTI'?'on':'';
@@ -1750,6 +1882,8 @@ function internLista(K){
       <div style="flex:1;min-width:0">
         <div class="mono" style="font-size:14px;font-weight:600">${i.at}</div>
         <div style="font-size:11px;color:var(--mut)">${i.por} · ${i.ts}</div>
+        ${i.prot?`<div style="font-size:11.5px;margin-top:2px">${i.prot.houve?`<b style="color:var(--royal)">Protocolo:</b> ${String(i.prot.qual).replace(/</g,'&lt;')}`:'<span style="color:var(--mut)">Sem protocolo assistencial</span>'}</div>`:''}
+        ${i.aud?`<div style="margin-top:3px"><span class="chip ${i.aud.res==='glosa'?'c-falta':'c-ok'}">${i.aud.res==='glosa'?'Auditada · pagamento glosado':'Auditada · conforme'}</span></div>`:''}
         <div style="margin-top:3px"><span class="chip ${i.val?'c-ok':'c-troca'}">${i.val?'Validada · '+i.valPor+' · '+i.valTs:'Aguardando validação'}</span></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">${botoes}</div>
@@ -1774,9 +1908,18 @@ function invalIntern(ix){
 }
 function addIntern(){
   const err=document.getElementById('ierr');
+  const sBloq=sh(internId), bq=bloqueioIntern(sBloq);
+  if(bq){
+    if(user.tipo!=='coord'){ err.textContent=`Período encerrado: ${bq.motivo}.`; err.style.display='block'; return; }
+    if(!confirm(`LANÇAMENTO FORA DO PRAZO\n\nEste registro é retroativo: ${bq.motivo}.\n\nComo coordenação você pode prosseguir, mas a ação será registrada na auditoria. Continuar?`)) return;
+  }
   const at=document.getElementById('iat').value.trim();
   // OBRIGATÓRIO: a unidade de destino (UI ou UTI) precisa ser escolhida explicitamente
   if(!uSel){ err.textContent='Selecione a unidade de destino: UI ou UTI. Esse registro é obrigatório.'; err.style.display='block'; return; }
+  // OBRIGATÓRIO: responder sobre protocolo assistencial
+  if(protSel===null){ err.textContent='Responda se houve necessidade de abertura de protocolo assistencial.'; err.style.display='block'; return; }
+  const protQual = protSel ? (document.getElementById('iprot').value||'').trim() : '';
+  if(protSel && protQual.length<2){ err.textContent='Descreva qual protocolo assistencial foi aberto.'; err.style.display='block'; return; }
   if(!at){ err.textContent='Informe o nº do atendimento.'; err.style.display='block'; return; }
   const K=st(internId).intern||[];
   // BLOQUEIO GLOBAL: o mesmo nº de atendimento não pode existir em NENHUM outro plantão do mês
@@ -1790,10 +1933,14 @@ function addIntern(){
   }
   err.style.display='none';
   const s=sh(internId);
-  const nova={u:uSel, at, ts:new Date().toLocaleString('pt-BR'), por:autor()};
-  log(`Internação registrada · ${uSel} · atendimento ${at}`, descS(s));
+  const nova={u:uSel, at, ts:new Date().toLocaleString('pt-BR'), por:autor(),
+              prot:{houve:protSel, qual:protQual}};
+  log(`Internação registrada · ${uSel} · atendimento ${at}`, descS(s)+` · protocolo: ${protSel?protQual:'não houve'}`+(bq?' · LANÇAMENTO RETROATIVO':''));
   S[internId]={...st(internId), intern:[...K, nova]}; syncReg(internId);
   document.getElementById('iat').value='';
+  const pq=document.getElementById('iprot'); if(pq) pq.value='';
+  protSel=null; pickProt(null); const bn=document.getElementById('pNao'); if(bn) bn.className='';
+  const box=document.getElementById('protQualBox'); if(box) box.style.display='none';
   document.getElementById('ilist').innerHTML=internLista(st(internId).intern);
   toast('Internação '+uSel+' registrada.');
 }
@@ -1870,7 +2017,11 @@ function demonstrativo(nome){
     const v=valorPlantao(s);
     let bonus=0, biUI=0, biUTI=0;
     if(s.setor==='EME' && (s.papel==='Plantonista 1'||s.papel==='Plantonista 2')){
-      (st(s.id).intern||[]).forEach(i=>{ if(i.val){ if(i.u==='UTI'){bonus+=V.bonus_uti; biUTI++; nUTI++;} else {bonus+=V.bonus_ui; biUI++; nUI++;} } });
+      (st(s.id).intern||[]).forEach(i=>{
+        if(!i.val) return;
+        if(i.aud && i.aud.res==='glosa') return;   // glosada na auditoria: não é paga
+        if(i.u==='UTI'){bonus+=V.bonus_uti; biUTI++; nUTI++;} else {bonus+=V.bonus_ui; biUI++; nUI++;}
+      });
     }
     totalPlant+=v; totalBonus+=bonus;
     const ts=tipoServico(s);
