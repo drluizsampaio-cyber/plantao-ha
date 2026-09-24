@@ -827,7 +827,7 @@ function openTroca(id){
   ov.innerHTML = `<div class="sheet">
     <h3>${s.medico==='A DEFINIR'?'Definir plantonista':(user.tipo==='med'?'Solicitar troca de plantão':'Registrar troca')}</h3>
     <p>${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)}${s.setor==='EME'?` · ${s.hini}–${s.hfim}`:''}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
-    <select id="sub">${escalaveis().filter(m=>m!==s.medico).map(m=>`<option>${m}</option>`).join('')}</select>
+    <select id="sub">${escalaveis().filter(m=>m!==executor(s)).map(m=>`<option>${m}</option>`).join('')}</select>
     <input id="obs" placeholder="Motivo / observação (opcional)">
     <div class="row">
       <button class="btn" onclick="closeOv()">Cancelar</button>
