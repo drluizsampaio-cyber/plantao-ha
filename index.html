@@ -144,6 +144,7 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .ocard{background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .ocard-txt{font-size:14px;line-height:1.45;color:var(--ink);white-space:pre-wrap}
 .ocard-meta{font-size:11.5px;color:var(--mut);margin-top:6px}
+.semterceiro{background:var(--ice);border:1px dashed var(--line);border-radius:10px;padding:9px 13px;margin:8px 0;font-size:12.5px;color:var(--mut);font-weight:600}
 .rascbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--warnbg);border:1.5px solid var(--warn);color:var(--warn);border-radius:12px;padding:11px 14px;margin-bottom:10px;font-size:13px}
 .epibox{background:var(--ice);border:1.5px solid var(--royal);border-radius:12px;padding:12px 14px;margin:12px 0}
 .epitit{font-size:12px;font-weight:800;color:var(--royal);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px}
@@ -677,6 +678,7 @@ function escalaView(){
     <div class="tools">
       <button class="btn pri" onclick="openGerar()">Gerar escala de mês futuro</button>
       <button class="btn" onclick="openRegras()">Configurar Regras de Escala${REGRAS.filter(r=>r.ativa).length?` (${REGRAS.filter(r=>r.ativa).length})`:''}</button>
+      <button class="btn" onclick="openFeriados()">3º plantonista nos feriados</button>
     </div>` : '';
   const faixaRasc = (MES.rascunho && user.tipo==='coord') ? `
     <div class="rascbar">
@@ -691,6 +693,7 @@ function escalaView(){
     ${faixaRasc}${faixaPub}${barraCoord}
     <div class="calgrid">${cal}</div>
     <h2 style="margin-top:4px">${cap(selLabel)}${ferNome?` <span style="color:var(--danger);font-size:12px;font-weight:700">· ${ferNome}</span>`:''}</h2>
+    ${(()=>{ const r=semTerceiroNoDia(selDate); return r?`<div class="semterceiro">Sem 3º plantonista nesta data — ${r.motivo}${user.tipo==='coord'?` <button class="btn ok" style="padding:3px 10px;font-size:12px;margin-left:6px" onclick="reabrirTerceiro('${selDate}')">Liberar vaga</button>`:''}</div>`:''; })()}
     <div class="filters"><div class="seg">
       ${['TODOS','EME','UNI'].map(x=>`<button class="${selSetor===x?'on':''}" onclick="setor('${x}')">${x==='TODOS'?'Todos':x==='EME'?'Emergência':'Internação'}</button>`).join('')}
     </div></div>
@@ -766,7 +769,7 @@ function card(s){
     acts += `<button class="btn pri" onclick="openTroca('${s.id}')">Definir plantonista</button>`;
   }
   // Remover posto da escala (coordenação): p/ feriado sem 3º plantonista, por exemplo
-  if (user.tipo==='coord' && stt==='def'){
+  if (user.tipo==='coord' && (stt==='def' || ehTerceiro(s))){
     acts += `<button class="btn dan" onclick="removerPosto('${s.id}')">Remover posto</button>`;
   }
   // Ocorrências: qualquer plantão (exceto A DEFINIR). Todos visualizam; registra o médico do plantão ou a coord.
@@ -1017,15 +1020,17 @@ function amostraAuditoria(){
     .sort((a,b)=>a.s.data.localeCompare(b.s.data));
 }
 function marcarAuditoria(shiftId, at, res){
-  const motivo = res==='glosa' ? (prompt('Descreva o motivo da glosa (falta de protocolo, conduta ou prescrição inadequada):')||'').trim() : '';
-  if(res==='glosa' && motivo.length<3){ toast('Glosa cancelada: é preciso descrever o motivo.'); return; }
+  const motivo = res==='melhoria'
+    ? (prompt('Descreva a oportunidade de melhoria identificada (protocolo não aberto, conduta, prescrição, registro):')||'').trim()
+    : (prompt('Observação (opcional):')||'').trim();
+  if(res==='melhoria' && motivo.length<3){ toast('Registro cancelado: descreva a oportunidade de melhoria.'); return; }
   const K=[...(st(shiftId).intern||[])];
   const ix=K.findIndex(i=>i.at===at); if(ix<0) return;
   K[ix]={...K[ix], aud:{res, motivo, por:autor(), ts:new Date().toLocaleString('pt-BR')}};
-  log(res==='glosa'?'Auditoria: internação GLOSADA':'Auditoria: internação conforme',
-      `atendimento ${at} · ${descS(sh(shiftId))}`+(motivo?` · motivo: ${motivo}`:''));
+  log(res==='melhoria'?'Auditoria assistencial: oportunidade de melhoria':'Auditoria assistencial: conforme',
+      `atendimento ${at} · ${descS(sh(shiftId))}`+(motivo?` · ${motivo}`:''));
   S[shiftId]={...st(shiftId), intern:K}; syncReg(shiftId);
-  toast(res==='glosa'?'Internação glosada — não será paga.':'Internação marcada como conforme.');
+  toast(res==='melhoria'?'Oportunidade de melhoria registrada (sem efeito no pagamento).':'Caso marcado como conforme.');
   render();
 }
 function desfazerAuditoria(shiftId, at){
@@ -1044,27 +1049,27 @@ function painelAuditoriaAmostra(){
   if(!am.length) return '';
   const total=todasInternacoesDoMes().length;
   const pend=am.filter(x=>!x.i.aud).length;
-  const glosa=am.filter(x=>x.i.aud&&x.i.aud.res==='glosa').length;
+  const melhoria=am.filter(x=>x.i.aud&&x.i.aud.res==='melhoria').length;
   return `<div class="fechpanel" style="border-left-color:var(--royal)">
     <div class="fechtit">Auditoria por amostragem — ${MES.label}</div>
     <div class="fechest" style="color:var(--royal)">${am.length} de ${total} internações sorteadas (5%)</div>
-    <div class="fechdica">Confidencial — visível apenas para a coordenação. Verifique abertura de protocolo, conduta e prescrição. Internação glosada não é paga ao plantonista.</div>
+    <div class="fechdica">Confidencial — visível apenas para a coordenação. Finalidade exclusivamente assistencial: verifique abertura de protocolo, conduta, prescrição e registro. <b>Nenhum resultado desta auditoria afeta o pagamento</b> — todas as internações validadas pelo contas médicas são pagas normalmente.</div>
     <button class="altbtn${pend?' on':''}" style="margin-top:10px" onclick="toggleAud()">
-      ${pend?`${pend} caso(s) aguardando sua análise`:`Todos analisados${glosa?` · ${glosa} glosado(s)`:''}`} ${_verAud?'▴':'▾'}
+      ${pend?`${pend} caso(s) aguardando sua análise`:`Todos analisados${melhoria?` · ${melhoria} com oportunidade de melhoria`:''}`} ${_verAud?'▴':'▾'}
     </button>
     ${_verAud?`<div class="altlist" style="max-height:420px">${am.map(x=>`
-      <div class="ocard" style="border-left-color:${x.i.aud?(x.i.aud.res==='glosa'?'var(--danger)':'var(--ok)'):'var(--warn)'}">
+      <div class="ocard" style="border-left-color:${x.i.aud?(x.i.aud.res==='melhoria'?'var(--royal)':'var(--ok)'):'var(--warn)'}">
         <div class="ocard-txt"><b>${x.i.u}</b> · atendimento <b class="mono">${x.i.at}</b><br>
         ${fmtD(x.s.data)} (${x.s.dia}) · ${x.s.turno} · ${x.s.papel} · <b>${executor(x.s)}</b></div>
         <div class="ocard-meta">${x.i.prot ? (x.i.prot.houve
             ? `Protocolo aberto: <b>${String(x.i.prot.qual).replace(/</g,'&lt;')}</b>`
             : '<b style="color:var(--warn)">Plantonista informou que NÃO houve protocolo</b>')
           : '<span style="color:var(--mut)">Registro anterior à pergunta de protocolo</span>'}</div>
-        ${x.i.aud?`<div class="ocard-meta"><b>${x.i.aud.res==='glosa'?'GLOSADA':'Conforme'}</b> · ${x.i.aud.por} · ${x.i.aud.ts}${x.i.aud.motivo?`<br>Motivo: ${String(x.i.aud.motivo).replace(/</g,'&lt;')}`:''}</div>
+        ${x.i.aud?`<div class="ocard-meta"><b>${x.i.aud.res==='melhoria'?'Oportunidade de melhoria':'Conforme'}</b> · ${x.i.aud.por} · ${x.i.aud.ts}${x.i.aud.motivo?`<br>${String(x.i.aud.motivo).replace(/</g,'&lt;')}`:''}</div>
           <button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="desfazerAuditoria('${x.s.id}','${x.i.at}')">Desfazer análise</button>`
-        :`<div style="display:flex;gap:6px;margin-top:8px">
+        :`<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
             <button class="btn ok" style="padding:5px 12px;font-size:12px" onclick="marcarAuditoria('${x.s.id}','${x.i.at}','ok')">Conforme</button>
-            <button class="btn dan" style="padding:5px 12px;font-size:12px" onclick="marcarAuditoria('${x.s.id}','${x.i.at}','glosa')">Glosar pagamento</button>
+            <button class="btn" style="padding:5px 12px;font-size:12px" onclick="marcarAuditoria('${x.s.id}','${x.i.at}','melhoria')">Oportunidade de melhoria</button>
           </div>`}
       </div>`).join('')}</div>`:''}
   </div>`;
@@ -1726,14 +1731,92 @@ function voltarRascunho(){
   loadEscala(); render(); toast('Voltou para rascunho.');
 }
 // Remover um posto (ex.: 3º plantonista em feriado que não terá)
-function removerPosto(id){
-  const s=sh(id); if(!s) return;
-  if(!confirm(`Remover este posto da escala?\n\n${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)} · ${s.turno}\n\nUse isto para feriados em que não haverá 3º plantonista, por exemplo.`)) return;
-  const ym=MES.ym;
-  ESCALAS[ym].shifts = ESCALAS[ym].shifts.filter(x=>x.id!==id);
-  log('Posto removido da escala', descS(s));
+function ehTerceiro(s){ return s.setor==='EME' && String(s.papel||'').startsWith('Diarista'); }
+function semTerceiroLista(ym){ return (ESCALAS[ym] && ESCALAS[ym].semTerceiro) || []; }
+function semTerceiroNoDia(iso){ return semTerceiroLista(iso.slice(0,7)).find(x=>x.data===iso) || null; }
+function salvarEscalaMes(ym){
   if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'});
-  loadEscala(); render(); toast('Posto removido.');
+}
+// Remove um posto e registra o motivo (fica auditável e é reversível)
+function removerPosto(id, motivoDireto){
+  const s=sh(id); if(!s) return;
+  const x=st(s.id);
+  if((x.intern&&x.intern.length)||(x.ocor&&x.ocor.length)||x.executor||(x.troca&&x.troca.status==='aceita')){
+    toast('Este plantão já tem registros (internação, ocorrência ou troca) e não pode ser removido.'); return;
+  }
+  let motivo=motivoDireto;
+  if(!motivo){
+    const fer=feriadoNome(s.data);
+    const sug = fer ? `Feriado — ${fer}` : 'Sem terceiro plantonista nesta data';
+    motivo=(prompt(`Remover este posto da escala?\n\n${fmtD(s.data)} · ${rotuloPapel(s)} · ${s.turno}\n\nRegistre o motivo:`, sug)||'').trim();
+    if(!motivo) return;
+  }
+  const ym=s.data.slice(0,7);
+  ESCALAS[ym].shifts = ESCALAS[ym].shifts.filter(y=>y.id!==id);
+  if(ehTerceiro(s)){
+    ESCALAS[ym].semTerceiro = [...semTerceiroLista(ym).filter(y=>y.data!==s.data),
+      {data:s.data, motivo, por:autor(), ts:new Date().toLocaleString('pt-BR'),
+       base:{setor:s.setor, papel:s.papel, turno:s.turno, hini:s.hini, hfim:s.hfim, dia:s.dia}}];
+  }
+  log('Posto removido da escala · '+motivo, descS(s));
+  salvarEscalaMes(ym);
+  loadEscala(); render(); toast('Posto removido: '+motivo);
+}
+// Reabre a vaga do 3º plantonista num dia em que ela havia sido retirada
+function reabrirTerceiro(iso){
+  const ym=iso.slice(0,7); const reg=semTerceiroNoDia(iso);
+  if(!reg){ toast('Não há registro de retirada nesta data.'); return; }
+  if(!confirm(`Reabrir a vaga de 3º plantonista em ${fmtD(iso)}?\n\nMotivo registrado da retirada: ${reg.motivo}\n\nA vaga voltará como "A DEFINIR" para você escalar alguém.`)) return;
+  const b=reg.base||{setor:'EME', papel:'Diarista (3º plantonista)', turno:'DIA', hini:'07:00', hfim:'19:00', dia:wdPT(iso)};
+  let n=1; while(ESCALAS[ym].shifts.some(s=>s.id==='G'+ym.replace('-','')+'-R'+String(n).padStart(3,'0'))) n++;
+  ESCALAS[ym].shifts.push({ id:'G'+ym.replace('-','')+'-R'+String(n).padStart(3,'0'),
+    data:iso, dia:b.dia||wdPT(iso), setor:b.setor, turno:b.turno, papel:b.papel,
+    medico:'A DEFINIR', hini:b.hini, hfim:b.hfim });
+  ESCALAS[ym].semTerceiro = semTerceiroLista(ym).filter(x=>x.data!==iso);
+  log('Vaga de 3º plantonista reaberta', fmtD(iso)+' · motivo anterior: '+reg.motivo);
+  salvarEscalaMes(ym);
+  loadEscala(); selDate=iso; render(); toast('Vaga reaberta — defina o plantonista.');
+}
+// Painel de feriados: ver e ajustar o 3º plantonista em cada feriado do mês
+function openFeriados(){
+  const fer=feriadosDe(MES.y);
+  const doMes=Object.keys(fer).filter(iso=>iso.slice(0,7)===MES.ym).sort();
+  const linhas = doMes.map(iso=>{
+    const util = ehUtil(iso);
+    const posto = SHIFTS.find(s=>s.data===iso && ehTerceiro(s));
+    const rem = semTerceiroNoDia(iso);
+    let estado, acao;
+    if(rem){
+      estado = `<span style="color:var(--danger);font-weight:700">Sem 3º plantonista</span> — ${rem.motivo}`;
+      acao = `<button class="btn ok" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="reabrirTerceiro('${iso}')">Liberar vaga</button>`;
+    } else if(posto){
+      const quem = executor(posto);
+      estado = `Vaga aberta — ${quem==='A DEFINIR'?'<b>a definir</b>':'<b>'+quem+'</b>'}`;
+      acao = `<button class="btn dan" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="removerPosto('${posto.id}','Feriado — ${String(fer[iso]).replace(/'/g,'')}')">Retirar 3º plantonista</button>`;
+    } else {
+      estado = util ? '<span style="color:var(--mut)">Não há posto de 3º plantonista nesta data</span>'
+                    : '<span style="color:var(--mut)">Fim de semana — não há 3º plantonista</span>';
+      acao = util ? `<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="reabrirTerceiro('${iso}')">Criar vaga</button>` : '';
+    }
+    return `<div class="ocard" style="border-left-color:var(--royal)">
+      <div class="ocard-txt"><b>${fmtD(iso)}</b> (${wdPT(iso)}) — ${fer[iso]}</div>
+      <div class="ocard-meta">${estado}</div>${acao}</div>`;
+  }).join('');
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
+    <h3>3º plantonista nos feriados — ${MES.label}</h3>
+    <p>Em regra não há 3º plantonista em feriados e fins de semana. Aqui você retira a vaga nas datas em que a posição não será escalada — ficando registrado o motivo — ou libera a vaga num feriado de maior demanda.</p>
+    ${doMes.length?linhas:'<div class="empty" style="padding:14px">Nenhum feriado neste mês.</div>'}
+    ${semTerceiroLista(MES.ym).filter(x=>!doMes.includes(x.data)).map(x=>`
+      <div class="ocard" style="border-left-color:var(--line)">
+        <div class="ocard-txt"><b>${fmtD(x.data)}</b> (${wdPT(x.data)}) — dia comum</div>
+        <div class="ocard-meta"><span style="color:var(--danger);font-weight:700">Sem 3º plantonista</span> — ${x.motivo}<br>${x.por} · ${x.ts}</div>
+        <button class="btn ok" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="reabrirTerceiro('${x.data}')">Liberar vaga</button>
+      </div>`).join('')}
+    <div class="row"><button class="btn" onclick="closeOv()">Fechar</button></div>
+  </div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
+  document.body.appendChild(ov);
 }
 
 function importarEscala(){
@@ -1883,7 +1966,7 @@ function internLista(K){
         <div class="mono" style="font-size:14px;font-weight:600">${i.at}</div>
         <div style="font-size:11px;color:var(--mut)">${i.por} · ${i.ts}</div>
         ${i.prot?`<div style="font-size:11.5px;margin-top:2px">${i.prot.houve?`<b style="color:var(--royal)">Protocolo:</b> ${String(i.prot.qual).replace(/</g,'&lt;')}`:'<span style="color:var(--mut)">Sem protocolo assistencial</span>'}</div>`:''}
-        ${i.aud?`<div style="margin-top:3px"><span class="chip ${i.aud.res==='glosa'?'c-falta':'c-ok'}">${i.aud.res==='glosa'?'Auditada · pagamento glosado':'Auditada · conforme'}</span></div>`:''}
+        ${i.aud?`<div style="margin-top:3px"><span class="chip c-ok">Auditada · ${i.aud.res==='melhoria'?'com oportunidade de melhoria':'conforme'}</span></div>`:''}
         <div style="margin-top:3px"><span class="chip ${i.val?'c-ok':'c-troca'}">${i.val?'Validada · '+i.valPor+' · '+i.valTs:'Aguardando validação'}</span></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">${botoes}</div>
@@ -2018,8 +2101,7 @@ function demonstrativo(nome){
     let bonus=0, biUI=0, biUTI=0;
     if(s.setor==='EME' && (s.papel==='Plantonista 1'||s.papel==='Plantonista 2')){
       (st(s.id).intern||[]).forEach(i=>{
-        if(!i.val) return;
-        if(i.aud && i.aud.res==='glosa') return;   // glosada na auditoria: não é paga
+        if(!i.val) return;   // basta a validação do contas médicas — a auditoria NÃO afeta pagamento
         if(i.u==='UTI'){bonus+=V.bonus_uti; biUTI++; nUTI++;} else {bonus+=V.bonus_ui; biUI++; nUI++;}
       });
     }
