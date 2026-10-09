@@ -2053,7 +2053,26 @@ const VALORES_PADRAO = {
   // datas especiais (valor do plantonista 1 e 2), por MM-DD
   especiais: { '06-23':1687.50, '06-24':1950, '12-24':1687.50, '12-25':1950, '12-31':1687.50, '01-01':1950 }
 };
-function getValores(){ return {...VALORES_PADRAO, ...(S._valores||{}), especiais:{...VALORES_PADRAO.especiais, ...((S._valores||{}).especiais||{})} }; }
+// getValores(iso): valores vigentes NAQUELA DATA. Sem argumento, os de hoje.
+function getValores(iso){
+  const cfg = S._valores || {};
+  const base = {...VALORES_PADRAO, ...cfg};
+  delete base.historico;
+  base.especiais = {...VALORES_PADRAO.especiais, ...(cfg.especiais||{})};
+  const hist = (cfg.historico||[]).slice().sort((a,b)=>String(a.desde).localeCompare(String(b.desde)));
+  if(!hist.length) return base;
+  const ref = iso || new Date().toISOString().slice(0,10);
+  let v = {...base};
+  hist.forEach(h=>{
+    if(String(h.desde) <= ref){
+      const {desde, por, ts, especiais, ...campos} = h;
+      v = {...v, ...campos};
+      if(especiais) v.especiais = {...v.especiais, ...especiais};
+    }
+  });
+  return v;
+}
+function historicoValores(){ return ((S._valores||{}).historico||[]).slice().sort((a,b)=>String(b.desde).localeCompare(String(a.desde))); }
 function ehFDS(iso){ const d=new Date(iso+'T12:00:00').getDay(); return d===0||d===6; } // dom/sáb
 // Classifica o serviço do plantão: chave única, rótulo e cor (para calendário e financeiro)
 function tipoServico(s){
@@ -2061,7 +2080,7 @@ function tipoServico(s){
   const md = s.data.slice(5);
   if(s.setor==='EME'){
     if(s.papel==='Plantonista 1' || s.papel==='Plantonista 2'){
-      const V=getValores();
+      const V=getValores(s.data);
       if(V.especiais[md]!=null) return {chave:'eme12_esp', rot:'Plantonista EME · data especial', cor:'srv-eme12'};
       return fds ? {chave:'eme12_fds', rot:'Plantonista EME · fim de semana', cor:'srv-eme12'}
                  : {chave:'eme12_sem', rot:'Plantonista EME · dia de semana', cor:'srv-eme12'};
@@ -2076,7 +2095,7 @@ function tipoServico(s){
   }
 }
 function valorPlantao(s){
-  const V=getValores(); const md=s.data.slice(5); // MM-DD
+  const V=getValores(s.data); const md=s.data.slice(5); // MM-DD — valores vigentes NA DATA do plantão
   const fds=ehFDS(s.data);
   if(s.setor==='EME'){
     if(s.papel==='Plantonista 1'||s.papel==='Plantonista 2'){
@@ -2093,10 +2112,10 @@ function valorPlantao(s){
 }
 // Demonstrativo de um médico no mês ativo
 function demonstrativo(nome){
-  const V=getValores();
   const linhas=[]; let totalPlant=0, totalBonus=0, nUI=0, nUTI=0;
   SHIFTS.filter(s=>executor(s)===nome).forEach(s=>{
     if(statusOf(s)==='falta') return;                          // falta não conta
+    const V=getValores(s.data);   // valores vigentes NA DATA do plantão
     const v=valorPlantao(s);
     let bonus=0, biUI=0, biUTI=0;
     if(s.setor==='EME' && (s.papel==='Plantonista 1'||s.papel==='Plantonista 2')){
@@ -2198,36 +2217,64 @@ function exportFin(){
   a.download=`financeiro_detalhado_${MES.m}_${MES.y}.csv`; a.click();
   toast('Financeiro detalhado exportado.');
 }
+const CAMPOS_VALOR = [['plant_semana','Plantonista 1 e 2 — dia de semana'],['plant_fds','Plantonista 1 e 2 — fim de semana'],
+       ['terceiro','3º plantonista (dias úteis)'],['hospitalista','Hospitalista (fixo)'],
+       ['prescritor_semana','Prescritor (UNI) — dia de semana'],['prescritor_fds','Prescritor (UNI) — fim de semana'],
+       ['bonus_ui','Bônus internação UI'],['bonus_uti','Bônus internação UTI']];
 function openValores(){
+  const hoje=new Date().toISOString().slice(0,10);
   const V=getValores();
+  const hist=historicoValores();
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Configurar valores (R$)</h3>
-    <p>Só a coordenação vê e edita. Vale para todos os cálculos do mês exibido.</p>
-    ${[['plant_semana','Plantonista 1 e 2 — dia de semana'],['plant_fds','Plantonista 1 e 2 — fim de semana'],
-       ['terceiro','3º plantonista (dias úteis)'],['hospitalista','Hospitalista (fixo)'],
-       ['prescritor_semana','Plantonista UNI — dia de semana'],['prescritor_fds','Plantonista UNI — fim de semana'],
-       ['bonus_ui','Bônus internação UI'],['bonus_uti','Bônus internação UTI']].map(([k,lbl])=>`
+    <p>Só a coordenação vê e edita. Informe <b>a partir de que data</b> os novos valores passam a valer:
+    plantões e internações de datas anteriores continuam calculados pelos valores antigos.</p>
+    <label style="font-size:12px;font-weight:700;color:var(--royal)">Novos valores valem a partir de</label>
+    <input id="v_desde" type="date" value="${hoje}">
+    <div style="height:10px"></div>
+    ${CAMPOS_VALOR.map(([k,lbl])=>`
       <label style="font-size:12px;font-weight:700;color:var(--mut)">${lbl}</label>
       <input id="v_${k}" inputmode="decimal" value="${V[k]}">`).join('')}
+    <div id="valerr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:6px 0"></div>
     <div class="row">
       <button class="btn" onclick="closeOv()">Cancelar</button>
-      <button class="btn pri" onclick="salvarValores()">Salvar valores</button>
+      <button class="btn pri" onclick="salvarValores()">Salvar reajuste</button>
     </div>
     <p style="margin-top:10px;font-size:12px;color:var(--mut)">Datas especiais (jun/dez) já vêm configuradas e se aplicam automaticamente aos plantonistas 1 e 2.</p>
+    ${hist.length?`<div class="pendtit" style="margin-top:14px">Histórico de reajustes</div>
+      ${hist.map(h=>`<div class="ocard" style="border-left-color:var(--royal)">
+        <div class="ocard-txt"><b>A partir de ${fmtD(h.desde)}</b></div>
+        <div class="ocard-meta">${CAMPOS_VALOR.filter(([k])=>h[k]!=null).map(([k,lbl])=>`${lbl}: <b>${BRL(h[k])}</b>`).join('<br>')}</div>
+        <div class="ocard-meta">${h.por||''} · ${h.ts||''}</div>
+      </div>`).join('')}`:''}
   </div>`;
   ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
   document.body.appendChild(ov);
 }
 function salvarValores(){
-  const campos=['plant_semana','plant_fds','terceiro','hospitalista','prescritor_semana','prescritor_fds','bonus_ui','bonus_uti'];
+  const err=document.getElementById('valerr');
+  const desde=(document.getElementById('v_desde').value||'').trim();
+  if(!desde){ err.textContent='Informe a data a partir da qual os novos valores valem.'; err.style.display='block'; return; }
+  const entrada={desde, por:autor(), ts:new Date().toLocaleString('pt-BR')};
+  const anterior=getValores(desde);
+  const mudou=[];
+  for(const [k,lbl] of CAMPOS_VALOR){
+    const raw=(document.getElementById('v_'+k).value||'').replace(',','.');
+    const n=parseFloat(raw);
+    if(isNaN(n)||n<0){ err.textContent='Valor inválido em: '+lbl; err.style.display='block'; return; }
+    entrada[k]=n;
+    if(Math.abs(n-Number(anterior[k]))>0.001) mudou.push(`${lbl}: ${BRL(Number(anterior[k]))} → ${BRL(n)}`);
+  }
+  if(!mudou.length){ toast('Nenhum valor foi alterado.'); closeOv(); return; }
+  if(!confirm(`Confirmar reajuste a partir de ${fmtD(desde)}?\n\n${mudou.join('\n')}\n\nPlantões e internações ANTERIORES a essa data continuam com os valores antigos.`)) return;
   const nv={...(S._valores||{})};
-  for(const k of campos){ const raw=(document.getElementById('v_'+k).value||'').replace(',','.'); const n=parseFloat(raw);
-    if(isNaN(n)||n<0){ toast('Valor inválido em um dos campos.'); return; } nv[k]=n; }
-  log('Valores financeiros alterados','configuração de valores por função');
+  nv.historico=[...((S._valores||{}).historico||[]).filter(h=>h.desde!==desde), entrada]
+    .sort((a,b)=>String(a.desde).localeCompare(String(b.desde)));
+  log('Reajuste de valores a partir de '+fmtD(desde), mudou.join(' · '));
   S._valores=nv;
   supa.from('estado').upsert({chave:'valores', valor:nv, atualizado_por:autor()},{onConflict:'chave'})
-    .then(({error})=>{ if(error) toast('Falha ao salvar valores.'); else toast('Valores atualizados.'); });
+    .then(({error})=>{ if(error) toast('Falha ao salvar valores.'); else toast('Reajuste registrado a partir de '+fmtD(desde)+'.'); });
   closeOv(); render();
 }
 
