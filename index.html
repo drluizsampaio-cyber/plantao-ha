@@ -225,26 +225,26 @@ nav button.on::after{content:"";width:18px;height:3px;border-radius:2px;backgrou
   #printArea{display:block!important;font-family:'Archivo',sans-serif;color:#000}
   #printArea .ph{display:flex;align-items:center;gap:14px;margin-bottom:6px}
   #printArea .ph img{height:42px}
-  #printArea h1{font-size:15px}
-  #printArea .pi{font-size:10px;margin-bottom:8px}
-  #printArea table{width:100%;border-collapse:collapse;font-size:9.5px;min-width:0}
-  #printArea th,#printArea td{border:1px solid #999;padding:4px 5px;text-align:left;background:#fff;color:#000;position:static;text-transform:none;letter-spacing:0}
-  #printArea th{background:#E8ECF5;font-size:9px}
-  #printArea td.sig{width:130px;height:24px}
+  #printArea h1{font-size:19px}
+  #printArea .pi{font-size:11.5px;margin-bottom:8px}
+  #printArea table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:0}
+  #printArea th,#printArea td{border:1px solid #999;padding:6px 7px;text-align:left;background:#fff;color:#000;position:static;text-transform:none;letter-spacing:0}
+  #printArea th{background:#E8ECF5;font-size:11.5px}
+  #printArea td.sig{width:150px;height:32px}
   #printArea tr{page-break-inside:avoid}
   /* escala do mês em 1 página */
   #printArea.onepage{}
   @page{margin:8mm}
   #printArea.onepage table.cal{table-layout:fixed;width:100%}
-  #printArea.onepage .cal th{background:#12205F;color:#fff;font-size:8.5px;padding:3px;text-align:center;border:1px solid #12205F}
-  #printArea.onepage .cal td{vertical-align:top;padding:2px 3px;height:64px;font-size:7.2px;line-height:1.35;border:1px solid #888}
+  #printArea.onepage .cal th{background:#12205F;color:#fff;font-size:11px;padding:4px;text-align:center;border:1px solid #12205F}
+  #printArea.onepage .cal td{vertical-align:top;padding:3px 4px;height:92px;font-size:10px;line-height:1.4;border:1px solid #888}
   #printArea.onepage .cal td.off{background:#F0F2F7}
-  #printArea.onepage .dn{font-size:9.5px;font-weight:800}
-  #printArea.onepage .ln{white-space:normal}
-  #printArea.onepage .ln b{font-size:6.8px;background:#E8ECF5;padding:0 2px;border-radius:2px}
+  #printArea.onepage .dn{font-size:13px;font-weight:800}
+  #printArea.onepage .ln{white-space:normal;margin-bottom:1px}
+  #printArea.onepage .ln b{font-size:9px;background:#E8ECF5;padding:0 2px;border-radius:2px}
   #printArea.onepage .ln.uni b{background:#DFEEE7}
-  #printArea.onepage h1{font-size:13px}
-  #printArea.onepage .pi{font-size:8.5px}
+  #printArea.onepage h1{font-size:16px}
+  #printArea.onepage .pi{font-size:10.5px}
   #printArea.onepage .pgbreak{page-break-before:always;margin-top:6px}
 }
 </style>
@@ -753,6 +753,7 @@ function card(s){
       acts += `<button class="btn warn" onclick="openTroca('${s.id}')">Passar plantão</button>`;
     if (user.tipo==='coord'){
       acts += `<button class="btn warn" onclick="openTroca('${s.id}')">Registrar troca</button>`;
+      acts += `<button class="btn" onclick="liberarVaga('${s.id}')">Liberar vaga</button>`;
       acts += (stt==='falta')
         ? `<button class="btn ok" onclick="desmarcarFalta('${s.id}')">Desfazer falta</button>`
         : `<button class="btn dan" onclick="markFalta('${s.id}')">Marcar falta</button>`;
@@ -1737,20 +1738,49 @@ function semTerceiroNoDia(iso){ return semTerceiroLista(iso.slice(0,7)).find(x=>
 function salvarEscalaMes(ym){
   if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'});
 }
+// Libera a vaga: tira o nome do médico e devolve o posto como "A DEFINIR".
+// Usado quando o médico fica indisponível e a vaga precisa voltar a ficar aberta.
+function liberarVaga(id){
+  const s=sh(id); if(!s) return;
+  const x=st(id);
+  if((x.intern&&x.intern.length)||(x.ocor&&x.ocor.length)){
+    toast('Este plantão tem internações ou ocorrências registradas — resolva-as antes de liberar a vaga.'); return;
+  }
+  const quem=executor(s);
+  if(quem==='A DEFINIR'){ toast('Esta vaga já está em aberto.'); return; }
+  const motivo=(prompt(`Liberar esta vaga?\n\n${fmtD(s.data)} · ${rotuloPapel(s)} · ${s.turno}\nOcupante atual: ${quem}\n\nO nome sai da escala e a vaga fica disponível para outro médico.\n\nMotivo:`, 'Indisponibilidade do médico')||'').trim();
+  if(!motivo) return;
+  const ym=s.data.slice(0,7);
+  save(id,{executor:null, troca:null});              // desfaz a designação
+  const arr=(ESCALAS[ym]&&ESCALAS[ym].shifts)||[];
+  const alvo=arr.find(y=>y.id===id);
+  if(alvo) alvo.medico='A DEFINIR';                  // devolve o posto à escala como vaga aberta
+  log('Vaga liberada · '+quem+' saiu · '+motivo, descS(s));
+  salvarEscalaMes(ym);
+  loadEscala(); render(); toast('Vaga liberada — disponível para outro médico.');
+}
 // Remove um posto e registra o motivo (fica auditável e é reversível)
 function removerPosto(id, motivoDireto){
   const s=sh(id); if(!s) return;
   const x=st(s.id);
-  if((x.intern&&x.intern.length)||(x.ocor&&x.ocor.length)||x.executor||(x.troca&&x.troca.status==='aceita')){
-    toast('Este plantão já tem registros (internação, ocorrência ou troca) e não pode ser removido.'); return;
+  // Só internação e ocorrência impedem: são registros clínicos/financeiros reais.
+  if((x.intern&&x.intern.length)||(x.ocor&&x.ocor.length)){
+    toast('Este plantão tem internações ou ocorrências registradas e não pode ser removido.'); return;
   }
+  const ocupante=executor(s);
+  const temNome = ocupante && ocupante!=='A DEFINIR';
   let motivo=motivoDireto;
   if(!motivo){
     const fer=feriadoNome(s.data);
     const sug = fer ? `Feriado — ${fer}` : 'Sem terceiro plantonista nesta data';
-    motivo=(prompt(`Remover este posto da escala?\n\n${fmtD(s.data)} · ${rotuloPapel(s)} · ${s.turno}\n\nRegistre o motivo:`, sug)||'').trim();
+    motivo=(prompt(`Remover este posto da escala?\n\n${fmtD(s.data)} · ${rotuloPapel(s)} · ${s.turno}`
+      +(temNome?`\nOcupante atual: ${ocupante} — o nome sairá da escala.`:'')
+      +`\n\nRegistre o motivo:`, sug)||'').trim();
     if(!motivo) return;
+  } else if(temNome){
+    if(!confirm(`Remover o posto de ${fmtD(s.data)}?\n\n${ocupante} está escalado(a) e o nome sairá da escala.\n\nMotivo: ${motivo}`)) return;
   }
+  if(temNome) save(id,{executor:null, troca:null});   // limpa a designação antes de remover o posto
   const ym=s.data.slice(0,7);
   ESCALAS[ym].shifts = ESCALAS[ym].shifts.filter(y=>y.id!==id);
   if(ehTerceiro(s)){
@@ -1883,9 +1913,15 @@ function bloqueioIntern(s){
   const f=(FECH[ym]||{});
   if(f.final) return {motivo:`o mês ${rotuloMes(ym)} já foi fechado para pagamento (${f.final.ts})`, tipo:'fechado'};
   const [y,mm]=ym.split('-').map(Number);
-  const limite=new Date(y, mm, 2, 0, 0, 0);   // 2º dia do mês seguinte 00h = 24h de tolerância
-  if(new Date() > limite) return {motivo:`o prazo de 24h após o fim de ${rotuloMes(ym)} já passou (encerrou em ${limite.toLocaleString('pt-BR')})`, tipo:'prazo'};
+  // Dia 01 do mês seguinte às 12h00 (mm já é 1-based, então Date(y, mm, 1) = dia 1 do mês seguinte)
+  const limite=new Date(y, mm, 1, 12, 0, 0);
+  if(new Date() > limite) return {motivo:`o prazo de lançamento de ${rotuloMes(ym)} encerrou em ${limite.toLocaleDateString('pt-BR')} às 12h`, tipo:'prazo'};
   return null;
+}
+// Texto do prazo para avisos na tela
+function prazoLancamento(ym){
+  const [y,mm]=ym.split('-').map(Number);
+  return new Date(y, mm, 1, 12, 0, 0);
 }
 function openIntern(id){
   internId=id; uSel=null; protSel=null;   // sem pré-seleção: unidade e protocolo são escolhas obrigatórias
@@ -1905,6 +1941,7 @@ function openIntern(id){
       ? 'Confira cada registro no sistema e valide. Somente internações validadas entram no fechamento e nas exportações para contas médicas.'
       : 'Registre cada internação com a unidade de destino e o nº de atendimento. O pagamento extra considera apenas internações validadas pelo administrativo.'}</p>
     <div id="ilist">${internLista(st(id).intern||[])}</div>
+    ${!bloq?`<div class="semterceiro">Prazo para lançar internações de <b>${rotuloMes(s.data.slice(0,7))}</b>: até <b>${prazoLancamento(s.data.slice(0,7)).toLocaleDateString('pt-BR')} às 12h</b>. Depois disso o período é encerrado para solicitação das notas fiscais.</div>`:''}
     ${bloq?`<div class="rascbar" style="display:block">
       <b>Período encerrado.</b> Não é possível incluir novas internações porque ${bloq.motivo}.
       ${user.tipo==='coord'?'<br><span style="font-weight:400">Como coordenação, você ainda pode lançar excepcionalmente — a ação fica registrada na auditoria.</span>':'<br><span style="font-weight:400">Procure a coordenação se houver um lançamento legítimo pendente.</span>'}
