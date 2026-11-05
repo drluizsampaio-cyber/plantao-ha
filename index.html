@@ -100,6 +100,25 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .now-head .t{font-size:13px;opacity:.85;font-weight:600}
 .now-head .big{font-size:32px;font-weight:800;margin:4px 0}
 .now-head .sub{font-size:12px;opacity:.9}
+.rg-top{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.rg-top h3{margin:0 0 6px;font-size:16px}
+.rg-sec{font-size:12px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:16px 0 7px}
+.rg-row{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:7px;
+  display:flex;gap:11px;align-items:center}
+.rg-row .rl{flex:1;min-width:0}
+.rg-row .rn{font-weight:700;font-size:14px}
+.rg-row .ro{font-size:12px;color:var(--mut);margin-top:3px;line-height:1.45}
+.rg-row .rv{text-align:right;white-space:nowrap}
+.rg-row .rv b{font-size:15px;font-weight:800;display:block}
+.rg-row .rv span{font-size:11px;color:var(--mut)}
+.rg-row .btn{padding:7px 11px;font-size:12px}
+.rg-box{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:10px}
+.rg-box p{margin:0 0 8px;font-size:12.5px;color:var(--mut);line-height:1.5}
+.rg-li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0;
+  border-bottom:1px solid var(--line);font-size:13px}
+.rg-li:last-child{border-bottom:none}
+.rg-li .q{color:var(--mut);font-size:11.5px}
+.rg-lbl{display:block;font-size:12px;font-weight:700;color:var(--mut);margin:10px 0 4px}
 .tools{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 .finexp{color:var(--mut);font-size:11px;margin-left:4px}
 .pendbox{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0}
@@ -346,6 +365,85 @@ function assinarTempoReal(){
 
 
 /* ---------- escala ativa: embutida (ago/2026) ou importada ---------- */
+/* ================= CATÁLOGO DE SETORES =================
+   Fonte única da verdade sobre cada setor: seus postos, como cada posto é pago,
+   e o que ele permite. Para acrescentar um setor, basta descrevê-lo aqui.
+   ------------------------------------------------------------------ */
+const SETORES = {
+  EME:{nome:'Emergência', sigla:'EME', natureza:'plantao', ordem:1, folha:true, cor:'srv-eme12',
+    postos:[
+      {papel:'Plantonista 1', turnos:['DIA','NOITE'], intern:true, especial:true,
+       val:{semana:'plant_semana', fds:'plant_fds'},
+       srv:{semana:'eme12_sem', fds:'eme12_fds', especial:'eme12_esp'},
+       rot:{semana:'Plantonista EME (semana)', fds:'Plantonista EME (fim de semana)', especial:'Plantonista EME (data especial)'}},
+      {papel:'Plantonista 2', turnos:['DIA','NOITE'], intern:true, especial:true,
+       val:{semana:'plant_semana', fds:'plant_fds'},
+       srv:{semana:'eme12_sem', fds:'eme12_fds', especial:'eme12_esp'},
+       rot:{semana:'Plantonista EME (semana)', fds:'Plantonista EME (fim de semana)', especial:'Plantonista EME (data especial)'}},
+      {papel:'Diarista (3º plantonista)', alias:'Diarista', turnos:['DIA'], soUteis:true, terceiro:true,
+       val:{unico:'terceiro'}, srv:{unico:'eme3'}, rot:{unico:'3º plantonista EME'}}
+    ]},
+  UNI:{nome:'Internação', sigla:'UNI', natureza:'plantao', ordem:2, cor:'srv-presc',
+    postos:[
+      {papel:'Hospitalista', turnos:['DIA'], val:{unico:'hospitalista'},
+       srv:{unico:'hosp'}, rot:{unico:'Hospitalista'}},
+      {papel:'Plantonista', rotulo:'Prescritor(a)', turnos:['DIA'],
+       val:{semana:'prescritor_semana', fds:'prescritor_fds'},
+       srv:{semana:'presc_sem', fds:'presc_fds'},
+       rot:{semana:'Prescritor (semana)', fds:'Prescritor (fim de semana)'}}
+    ]},
+  UTI:{nome:'UTI', sigla:'UTI', natureza:'plantao', ordem:3, cor:'srv-uti',
+    semValorAoMedico:true, pacotePJ:true, costuma24h:true,
+    postos:[
+      {papel:'Plantonista', turnos:['DIA','NOITE'], val:{unico:'uti_plantao'},
+       srv:{unico:'uti_plant'}, rot:{unico:'UTI · plantão 12h'}},
+      {papel:'Diarista', turnos:['DIA'], diario:true, semValorAoMedico:true,
+       val:{unico:'uti_diarista'}, srv:{unico:'uti_diar'}, rot:{unico:'UTI · diarista (por dia)'}}
+    ]},
+  ORT:{nome:'Ortopedia', sigla:'ORT', natureza:'plantao', ordem:4, cor:'srv-orto', costuma24h:true,
+    postos:[
+      {papel:'Plantonista', turnos:['DIA','NOITE'], val:{unico:'orto_plantao'},
+       srv:{unico:'orto_plant'}, rot:{unico:'Ortopedia · plantão 12h'}}
+    ]},
+  CG:{nome:'Cirurgia Geral', sigla:'CG', natureza:'sobreaviso', ordem:5, cor:'srv-sob',
+    escalaPor:'secretaria', costuma24h:true, pacoteMensal:'cg_pacote',
+    postos:[
+      {papel:'Sobreaviso', turnos:['DIA','NOITE'], rateioPacote:true,
+       srv:{semana:'cg_sem', fds:'cg_fds_srv', feriado:'cg_fer_srv'},
+       rot:{semana:'Cirurgia Geral · sobreaviso (dia útil)',
+            fds:'Cirurgia Geral · sobreaviso (fim de semana)',
+            feriado:'Cirurgia Geral · sobreaviso (feriado)'}}
+    ]},
+  URO:{nome:'Urologia', sigla:'URO', natureza:'sobreaviso', ordem:6, cor:'srv-sob',
+    rateioMensal:'uro_mensal',
+    postos:[
+      {papel:'Sobreaviso', turnos:['DIA'], soUteis:true, semFeriado:true, rateioDiaUtil:'uro_mensal',
+       srv:{unico:'uro_sob'}, rot:{unico:'Urologia · sobreaviso (dia útil)'}}
+    ]},
+  NEU:{nome:'Neurocirurgia', sigla:'NEU', natureza:'informativo', ordem:7, cor:'srv-sob',
+    valorMensal:'neu_mensal', postos:[]}
+};
+function setorDe(s){ return SETORES[s && s.setor] || null; }
+function postoDe(s){
+  const st=setorDe(s); if(!st) return null;
+  const p=String(s.papel||'');
+  return (st.postos||[]).find(x=>x.papel===p)
+      || (st.postos||[]).find(x=>x.alias && p.startsWith(x.alias)) || null;
+}
+// Ordem e rótulos dos tipos de serviço, derivados do catálogo
+function servicosCatalogo(){
+  const ordem=[], rot={};
+  Object.keys(SETORES).sort((a,b)=>SETORES[a].ordem-SETORES[b].ordem).forEach(sg=>{
+    (SETORES[sg].postos||[]).forEach(p=>{
+      ['semana','fds','feriado','especial','unico'].forEach(k=>{
+        const ch=p.srv&&p.srv[k]; if(!ch||rot[ch]) return;
+        ordem.push(ch); rot[ch]=(p.rot&&p.rot[k])||ch;
+      });
+    });
+  });
+  ordem.push('eme_outro','uni_outro'); rot.eme_outro='Emergência (outro)'; rot.uni_outro='Internação (outro)';
+  return {ordem, rot};
+}
 let SHIFTS = [], MEDICOS = [], MES = {};
 let ESCALAS = {};        // { '2026-08': {shifts, info}, '2026-09': {...} }
 let COORD_EXTRA = [];    // nomes de coordenadores que também podem ser escalados (ex.: Magno)
@@ -384,6 +482,57 @@ function feriadosDe(y){
   return f;
 }
 function feriadoNome(iso){ return feriadosDe(Number(iso.slice(0,4)))[iso] || null; }
+/* Feriados que geram acréscimo no rateio do sobreaviso.
+   Carnaval, Quarta de Cinzas e Corpus Christi são ponto facultativo, não
+   feriado nacional — por decisão da direção em 04/11/2026 não recebem o
+   acréscimo. Continuam aparecendo no calendário, só não mudam o valor. */
+function feriadosRateio(y){
+  const f={};
+  [['01-01','Confraternização'],['04-21','Tiradentes'],['05-01','Dia do Trabalho'],
+   ['09-07','Independência'],['10-12','N. Sra. Aparecida'],['11-02','Finados'],
+   ['11-15','Proclamação da República'],['11-20','Consciência Negra'],['12-25','Natal']]
+    .forEach(([md,n])=>f[`${y}-${md}`]=n);
+  const P=pascoa(y), addd=(b,n)=>{const x=new Date(b);x.setUTCDate(x.getUTCDate()+n);return x.toISOString().slice(0,10);};
+  f[addd(P,-2)]='Sexta Santa';
+  return f;
+}
+function ehFeriadoRateio(iso){ return !!feriadosRateio(Number(iso.slice(0,4)))[iso]; }
+
+/* ---------- rateio do sobreaviso de Cirurgia Geral ----------
+   O pacote é fixo no mês. Converte-se o mês em "dias equivalentes"
+   (útil = 1, fim de semana = 1 + inc_fds, feriado = 1 + inc_fer) e
+   divide-se o rateio por esse total. Fecha sempre no valor do pacote. */
+function cgRateio(ym, iso){
+  const V = getValores(iso || (ym+'-01'));
+  const iF = 1 + Number(V.cg_inc_fds||0)/100;
+  const iH = 1 + Number(V.cg_inc_fer||0)/100;
+  let U=0, F=0, H=0;
+  diasDoMes(ym).forEach(d=>{
+    if(ehFeriadoRateio(d)) H++; else if(ehFDS(d)) F++; else U++;
+  });
+  const equiv  = U + F*iF + H*iH;
+  const rateio = Number(V.cg_pacote||0) - Number(V.cg_sombra||0);
+  const base   = equiv>0 ? rateio/equiv : 0;
+  return {U,F,H,iF,iH,equiv,rateio,base,fds:base*iF,fer:base*iH,
+          sombra:Number(V.cg_sombra||0), pacote:Number(V.cg_pacote||0)};
+}
+/* Valor do DIA de sobreaviso. Cada plantão de 12h vale metade. */
+function cgValorDia(iso){
+  const r = cgRateio(iso.slice(0,7), iso);
+  return ehFeriadoRateio(iso) ? r.fer : (ehFDS(iso) ? r.fds : r.base);
+}
+/* ---------- rateio do sobreaviso de Urologia ----------
+   Valor mensal dividido pelos dias de sobreaviso efetivos do mês.
+   Aqui "dia útil" é operacional: usa o calendário de feriados do app,
+   porque a pergunta é se houve cobertura, não quanto ela vale a mais. */
+function uroDiasSobreaviso(ym){
+  return diasDoMes(ym).filter(d=>ehUtil(d) && !feriadoNome(d)).length;
+}
+function uroValorDia(iso){
+  const V = getValores(iso);
+  const n = uroDiasSobreaviso(iso.slice(0,7));
+  return n>0 ? Number(V.uro_mensal||0)/n : 0;
+}
 function loadEscala(){
   const disp = mesesDisponiveis();
   // define o mês ativo: mantém o já escolhido se ainda existir; senão mês corrente; senão o mais recente disponível
@@ -454,13 +603,21 @@ function bandLabel(s){
 function render(){
   const app = document.getElementById('app');
   if (!user){ app.innerHTML = loginView(); return; }
-  const tabs = user.tipo==='med'
+  if (!user.senhaTrocada){ app.innerHTML = primeiroAcessoView(); return; }
+  const tabs = user.secretaria
+    ? [['escala','Escala',icoCal()]]
+    : user.tipo==='med'
     ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['meus','Meus plantões',icoUser()],['ocor','Ocorrências',icoWarn()],['fin','A receber',icoCash()]]
+    : user.diretor
+    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['bi','Custos',icoCash()],['regras','Regras',icoDoc()],['aud','Auditoria',icoLog()]]
     : user.tipo==='coord'
     ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['ocor','Ocorrências',icoWarn()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]]
-    : [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]];
-  if (!tabs.some(t=>t[0]===tab)) tab='agora';
-  const quem = user.tipo==='coord'?'Coordenação Médica':user.tipo==='adm'?'Administrativo · validação de internações':user.nome;
+    : [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['bi','Custos',icoCash()],['aud','Auditoria',icoLog()]];
+  if (!tabs.some(t=>t[0]===tab)) tab=tabs[0][0];
+  const quem = user.diretor?'Direção Médica · '+user.nome
+             : user.secretaria?'Secretaria · sobreaviso de Cirurgia Geral'
+             : user.tipo==='coord'?'Coordenação Médica'
+             : user.tipo==='adm'?'Administrativo · validação de internações':user.nome;
   app.innerHTML = `
     <header>
       <img src="${LOGO}" alt="Hospital Alagoinhas">
@@ -471,7 +628,9 @@ function render(){
       const badge = (t[0]==='ocor' && user.tipo==='coord' && totalOcorNaoVistas()>0) ? '<span class="navbadge blink"></span>' : '';
       return `<button class="${tab===t[0]?'on':''}" onclick="go('${t[0]}')">${t[2]}${t[1]}${badge}</button>`;
     }).join('')}</nav>
-    <main>${tab==='agora'?agoraView():tab==='escala'?escalaView():tab==='meus'?meusView():tab==='aud'?audView():tab==='fin'?finView():tab==='ocor'?ocorView():fechView()}</main>`;
+    <main>${tab==='agora'?agoraView():tab==='escala'?escalaView():tab==='meus'?meusView()
+      :tab==='aud'?audView():tab==='fin'?finView():tab==='ocor'?ocorView()
+      :tab==='regras'?regrasView():tab==='bi'?biView():fechView()}</main>`;
 }
 function go(t){ tab=t; if(t==='aud') carregarAud(); render(); window.scrollTo(0,0); }
 async function logout(){
@@ -493,11 +652,13 @@ function log(acao, detalhe){
     .then(({error})=>{ if(error) console.error('auditoria:',error); });
 }
 function rotuloPapel(s){
-  // Exibição: o plantonista da Internação (UNI) chama-se 'Prescritor(a)'. Chave interna segue 'Plantonista'.
-  if(s.setor==='UNI' && s.papel==='Plantonista') return 'Prescritor(a)';
-  return s.papel;
+  // Exibição vem do catálogo: o plantonista da Internação chama-se 'Prescritor(a)',
+  // mas a CHAVE INTERNA segue 'Plantonista' (as importações de CSV não mudam).
+  const p=postoDe(s);
+  return (p && p.rotulo) || s.papel;
 }
-function descS(s){ return fmtD(s.data)+' · '+(s.setor==='EME'?'Emergência':'Internação')+' · '+s.turno+' · '+rotuloPapel(s)+' · escalado: '+s.medico; }
+function nomeSetor(s){ const st=setorDe(s); return st?st.nome:(s.setor||''); }
+function descS(s){ return fmtD(s.data)+' · '+nomeSetor(s)+' · '+s.turno+' · '+rotuloPapel(s)+' · escalado: '+s.medico; }
 
 /* ---------- login individual (Supabase Auth) ---------- */
 function loginView(){
@@ -546,7 +707,15 @@ async function aposLogin(session){
       if(e){ e.textContent='Sua conta existe mas ainda não tem perfil definido. Peça à coordenação para cadastrá-lo na tabela de perfis.'; e.style.display='block'; } },50);
     return;
   }
-  user={tipo:p.perfil, nome:p.nome, email:p.email};
+  /* 'diretor' roda com os mesmos poderes de coordenação em todo o app,
+     mais as telas exclusivas da direção. Assim nenhuma das dezenas de
+     verificações existentes precisa mudar. */
+  const papel = p.perfil;
+  user={tipo: papel==='diretor' ? 'coord' : papel,
+        papel, diretor: papel==='diretor', secretaria: papel==='secretaria',
+        nome:p.nome, email:p.email, uid:uid, setores:p.setores||'',
+        senhaTrocada: p.senha_trocada !== false};
+  if(!user.senhaTrocada){ render(); return; }   // trava até definir a nova senha
   await carregarElenco();
   await carregarNuvem();
   assinarTempoReal();
@@ -593,6 +762,49 @@ function adiarPopupTroca(){
   _trocaPopupAtivo=false;
   const ov=document.getElementById('ov'); if(ov) ov.remove();
 }
+function primeiroAcessoView(){
+  return `<header><img src="${LOGO}" alt="Hospital Alagoinhas">
+    <div class="who"><b>${user.nome}</b>
+      <button onclick="logout()">sair</button></div></header>
+  <main><div class="wrap" style="max-width:420px;margin:0 auto">
+    <div class="card" style="margin-top:18px">
+      <h3 style="margin:0 0 6px">Defina sua senha</h3>
+      <p style="margin:0 0 14px;color:var(--mut);font-size:14px;line-height:1.5">
+        Este é seu primeiro acesso. A senha que a coordenação enviou foi montada a partir do seu
+        e-mail, então qualquer pessoa que o conheça poderia entrar no seu lugar. Escolha uma senha
+        sua para continuar.</p>
+      <input type="password" id="pa1" placeholder="Nova senha (mín. 8 caracteres)" autocomplete="new-password">
+      <input type="password" id="pa2" placeholder="Repita a nova senha" autocomplete="new-password">
+      <div id="paerr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:4px 0 10px"></div>
+      <button class="btn pri" style="width:100%" onclick="salvarPrimeiroAcesso()">Salvar e entrar</button>
+      <p style="margin:14px 0 0;color:var(--mut);font-size:12.5px;line-height:1.5">
+        Não use a mesma senha de outros sites. Se esquecer, a coordenação pode gerar uma nova.</p>
+    </div></div></main>`;
+}
+async function salvarPrimeiroAcesso(){
+  const a=document.getElementById('pa1').value, b=document.getElementById('pa2').value;
+  const e=document.getElementById('paerr');
+  const erro = m => { e.textContent=m; e.style.display='block'; };
+  if(a.length<8) return erro('A senha precisa ter pelo menos 8 caracteres.');
+  if(a!==b)      return erro('As senhas não conferem.');
+  const ini=(user.email||'').slice(0,6).toLowerCase();
+  if(ini && a.toLowerCase().includes(ini))
+    return erro('A senha não pode conter "'+ini+'", que veio do seu e-mail. Escolha outra.');
+  const {error}=await supa.auth.updateUser({password:a});
+  if(error) return erro('Não foi possível alterar: '+error.message);
+  /* a RLS bloqueia UPDATE sem devolver erro: só zero linhas. O .select() revela. */
+  const {data:upd, error:e2} = await supa.from('perfis')
+    .update({senha_trocada:true}).eq('user_id',user.uid).select('user_id');
+  const gravou = !e2 && Array.isArray(upd) && upd.length>0;
+  user.senhaTrocada=true;
+  await carregarElenco(); await carregarNuvem(); assinarTempoReal(); carregarAud();
+  log('Senha definida no primeiro acesso',
+      gravou ? '' : 'marcador não gravado — falta permissão de UPDATE em perfis');
+  tab='agora'; render();
+  toast(gravou ? 'Senha definida. Bem-vindo(a) ao Plantão HA.'
+               : 'Senha alterada, mas o registro não foi gravado. Avise a coordenação.');
+  verificarTrocasPendentes();
+}
 function abrirMinhaSenha(){
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet">
@@ -622,17 +834,54 @@ async function salvarMinhaSenha(){
 function agoraView(){
   const d = todayISO();
   const list = SHIFTS.filter(s=>s.data===d);
-  const eme = list.filter(s=>s.setor==='EME');
-  const uni = list.filter(s=>s.setor==='UNI');
   const hoje = new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long'});
+  const alcance = meusSetores();
+  // setores presenciais que a pessoa alcança e que têm plantão hoje
+  const presenciais = alcance.filter(sg=>SETORES[sg] && SETORES[sg].natureza==='plantao');
+  const blocos = presenciais.map(sg=>{
+    const ls = list.filter(s=>s.setor===sg);
+    if(!ls.length) return '';
+    return `<h2>${SETORES[sg].nome}</h2>${ls.map(card).join('')}`;
+  }).filter(Boolean).join('');
+
+  // quem está de sobreaviso hoje, para acionamento
+  const sobHoje = ['CG','URO'].map(sg=>{
+    const s = list.find(x=>x.setor===sg && x.turno==='DIA');
+    const quem = s ? executor(s) : null;
+    return {sg, nome:(CONTATOS[sg]||{}).nome||sg, quem, tel: quem?telDe(sg,quem):null,
+            nota:(CONTATOS[sg]||{}).nota};
+  });
+  ['NEU','PED'].forEach(sg=>{
+    const c=CONTATOS[sg]; if(!c) return;
+    sobHoje.push({sg, nome:c.nome, quem:c.equipe[0][0], tel:c.equipe[0][1], nota:c.nota});
+  });
+
   return `
     <div class="now-head">
       <div class="t">Quem está de plantão</div>
       <div class="big">${cap(hoje)}</div>
-      <div class="sub">Unidade de Emergência e Unidade de Internação</div>
+      <div class="sub">${presenciais.length>1?'Todos os setores':((SETORES[presenciais[0]]||{}).nome||'')}</div>
     </div>
-    <h2>Emergência</h2>${eme.map(card).join('')}
-    <h2>Internação</h2>${uni.map(card).join('')}`;
+    ${blocos || '<div class="empty">Nenhum plantão lançado para hoje nos seus setores.</div>'}
+    <h2>Acionar especialidade</h2>
+    <div class="rg-box" style="padding:6px 13px">
+      ${sobHoje.map(x=>`<div class="rg-li" style="padding:13px 0">
+        <span>
+          <b style="font-size:14px">${x.nome}</b>
+          <div class="q" style="margin-top:3px">${
+            x.quem && x.quem!=='A DEFINIR'
+              ? x.quem
+              : (x.sg==='URO' ? 'Sem sobreaviso hoje' : '<span style="color:var(--warn)">A definir</span>')
+          }${x.nota?' · '+x.nota:''}</div>
+        </span>
+        ${x.tel && x.quem && x.quem!=='A DEFINIR'
+          ? `<a class="btn" href="tel:+55${soDigitos(x.tel)}" style="text-decoration:none;white-space:nowrap">📞 ${x.tel}</a>`
+          : '<span class="q">—</span>'}
+      </div>`).join('')}
+    </div>
+    <p style="font-size:12px;color:var(--mut);margin-top:10px">
+      Cirurgia Geral e Urologia seguem a escala do dia. Neurocirurgia e Pediatria têm cobertura
+      contínua, sempre no mesmo contato.</p>`;
 }
 function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 
@@ -671,6 +920,8 @@ function escalaView(){
     cal += `<button class="${iso===selDate?'sel':''}${iso===hoje?' today':''}${al}${eh}${estilo}"${multiStyle} onclick="pick('${iso}')" ${fer[iso]?`title="${fer[iso]}"`:''}>${i}</button>`;
   }
   let list = SHIFTS.filter(s=>s.data===selDate);
+  const alcance = meusSetores();
+  list = list.filter(s=>alcance.includes(s.setor));
   if (selSetor!=='TODOS') list=list.filter(s=>s.setor===selSetor);
   const selLabel = new Date(selDate+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long'});
   const ferNome = feriadoNome(selDate);
@@ -695,12 +946,15 @@ function escalaView(){
     <h2 style="margin-top:4px">${cap(selLabel)}${ferNome?` <span style="color:var(--danger);font-size:12px;font-weight:700">· ${ferNome}</span>`:''}</h2>
     ${(()=>{ const r=semTerceiroNoDia(selDate); return r?`<div class="semterceiro">Sem 3º plantonista nesta data — ${r.motivo}${user.tipo==='coord'?` <button class="btn ok" style="padding:3px 10px;font-size:12px;margin-left:6px" onclick="reabrirTerceiro('${selDate}')">Liberar vaga</button>`:''}</div>`:''; })()}
     <div class="filters"><div class="seg">
-      ${['TODOS','EME','UNI'].map(x=>`<button class="${selSetor===x?'on':''}" onclick="setor('${x}')">${x==='TODOS'?'Todos':x==='EME'?'Emergência':'Internação'}</button>`).join('')}
+      ${(()=>{const sgs=meusSetores();
+        const opts = sgs.length>1 ? ['TODOS',...sgs] : sgs;
+        return opts.map(x=>`<button class="${selSetor===x?'on':''}" onclick="setor('${x}')">${
+          x==='TODOS'?'Todos':SETORES[x].nome}</button>`).join('');})()}
     </div></div>
     ${list.map(card).join('') || '<div class="empty">Sem plantões neste filtro.</div>'}`;
 }
 function pick(d){ selDate=d; render(); }
-function setor(x){ selSetor=x; render(); }
+function setor(x){ selSetor = (x==='TODOS'||alcancaSetor(x)) ? x : 'TODOS'; render(); }
 function trocarMes(ym){ if(!ESCALAS[ym]) return; mesAtivo=ym; selSetor='TODOS'; loadEscala();
   // ao trocar de mês, posiciona no dia 1 (ou hoje, se for o mês corrente)
   selDate = (ym===ymAtual()) ? todayISO() : ym+'-01';
@@ -760,7 +1014,7 @@ function card(s){
     }
   }
   // Internações: SOMENTE Plantonista 1 e 2 da Emergência
-  const podeIntern = s.setor==='EME' && (s.papel==='Plantonista 1' || s.papel==='Plantonista 2');
+  const _pi=postoDe(s); const podeIntern = !!(_pi && _pi.intern);
   const K = x.intern || [];
   if (podeIntern && stt!=='def' && (isMine || user.tipo==='coord' || user.tipo==='adm')){
     acts += `<button class="btn" onclick="openIntern('${s.id}')">Internações${K.length?` (${K.length})`:''}</button>`;
@@ -779,13 +1033,12 @@ function card(s){
     const oNovas = O.filter(o=>!o.vista).length;
     acts += `<button class="btn" onclick="openOcor('${s.id}')">Ocorrências${O.length?` (${O.length})`:''}${(user.tipo==='coord'&&oNovas)?' •':''}</button>`;
   }
-  const nUI=K.filter(i=>i.u==='UI'&&i.val).length, nUTI=K.filter(i=>i.u==='UTI'&&i.val).length, nAg=K.filter(i=>!i.val).length;
+  const nUI=K.filter(i=>i.u==='UI'&&internLiberada(s,i)).length, nUTI=K.filter(i=>i.u==='UTI'&&internLiberada(s,i)).length, nAg=K.filter(i=>!internLiberada(s,i)).length;
   const tUI=K.filter(i=>i.u==='UI').length, tUTI=K.filter(i=>i.u==='UTI').length;
   const stamps = [
     K.length ? `Internações: <b>${K.length}</b> registrada(s) — <b>${tUI} UI</b> · <b>${tUTI} UTI</b>`
-               + (nAg ? ` · <span style="color:var(--warn);font-weight:700">${nAg} aguardando validação</span>`
-                      : ` · <span style="color:var(--ok);font-weight:700">todas validadas</span>`)
-               + (nAg && (nUI+nUTI) ? `<br><span style="color:var(--mut)">Já validadas: ${nUI} UI · ${nUTI} UTI</span>` : '') : '',
+               + (nAg ? ` · <span style="color:var(--warn);font-weight:700">${nAg} aguardando a auditoria da coordenação</span>`
+                      : ` · <span style="color:var(--ok);font-weight:700">liberadas para pagamento</span>`) : '',
     (x.ocor&&x.ocor.length) ? `<span style="color:var(--warn)">⚠️ ${x.ocor.length} ocorrência(s) registrada(s)</span>` : '',
     tr ? (tr.status==='pendente'
             ? `<span style="color:var(--warn);font-weight:700">Troca solicitada — aguardando aceite de ${tr.para}</span>`
@@ -1014,10 +1267,13 @@ function amostraAuditoria(){
   const todas=todasInternacoesDoMes();
   if(!todas.length) return [];
   const n=Math.max(1, Math.ceil(todas.length*0.05));   // 5%, no mínimo 1
-  return todas
-    .map(x=>({...x, _h:hashStr(MES.ym+'|'+x.i.at)}))
-    .sort((a,b)=>a._h-b._h)
-    .slice(0,n)
+  const comHash = todas.map(x=>({...x, _h:hashStr(MES.ym+'|'+x.i.at)}));
+  // A amostra é CUMULATIVA: um caso já analisado nunca sai, mesmo que entrem novas
+  // internações depois. Isso permite auditar ao longo do mês sem perder o trabalho feito.
+  const jaVistos  = comHash.filter(x=>x.i.aud);
+  const candidatos= comHash.filter(x=>!x.i.aud).sort((a,b)=>a._h-b._h);
+  const faltam    = Math.max(0, n - jaVistos.length);
+  return [...jaVistos, ...candidatos.slice(0,faltam)]
     .sort((a,b)=>a.s.data.localeCompare(b.s.data));
 }
 function marcarAuditoria(shiftId, at, res){
@@ -1044,20 +1300,47 @@ function desfazerAuditoria(shiftId, at){
 }
 let _verAud=false;
 function toggleAud(){ _verAud=!_verAud; render(); }
+function finalizarAuditoria(){
+  const total=todasInternacoesDoMes().length;
+  const pend=amostraAuditoria().filter(x=>!x.i.aud).length;
+  if(auditoriaFinalizada(MES.ym)){ toast('A auditoria deste mês já foi finalizada.'); return; }
+  const aviso = pend? `\n\nAinda há ${pend} caso(s) sorteado(s) sem análise.`:'';
+  if(!confirm(`Finalizar a auditoria clínica de ${MES.label}?${aviso}\n\nAo finalizar, as ${total} internação(ões) do mês ficam LIBERADAS PARA PAGAMENTO — não só as sorteadas.\n\nEsta ação fica registrada na auditoria.`)) return;
+  const f=fechDoMes(), agora=new Date();
+  f.auditoria={finalizada:true, por:autor(), ts:agora.toLocaleString('pt-BR'), iso:agora.toISOString(), total};
+  log('Auditoria clínica finalizada · internações liberadas para pagamento', `${MES.label} · ${total} internação(ões)`);
+  salvarFech(f); toast(`Auditoria finalizada — ${total} internação(ões) liberada(s).`); render();
+}
+function reabrirAuditoria(){
+  if(!confirm(`Reabrir a auditoria de ${MES.label}?\n\nAs internações do mês voltam a ficar pendentes de liberação.`)) return;
+  const f=fechDoMes(); delete f.auditoria;
+  log('Auditoria clínica reaberta', MES.label);
+  salvarFech(f); toast('Auditoria reaberta.'); render();
+}
 function painelAuditoriaAmostra(){
   if(user.tipo!=='coord') return '';           // SIGILO: só a coordenação vê
   const am=amostraAuditoria();
   if(!am.length) return '';
   const total=todasInternacoesDoMes().length;
   const pend=am.filter(x=>!x.i.aud).length;
+  const fin=auditoriaFinalizada(MES.ym);
+  const f=fechDoMes();
   const melhoria=am.filter(x=>x.i.aud&&x.i.aud.res==='melhoria').length;
   return `<div class="fechpanel" style="border-left-color:var(--royal)">
     <div class="fechtit">Auditoria por amostragem — ${MES.label}</div>
     <div class="fechest" style="color:var(--royal)">${am.length} de ${total} internações sorteadas (5%)</div>
-    <div class="fechdica">Confidencial — visível apenas para a coordenação. Finalidade exclusivamente assistencial: verifique abertura de protocolo, conduta, prescrição e registro. <b>Nenhum resultado desta auditoria afeta o pagamento</b> — todas as internações validadas pelo contas médicas são pagas normalmente.</div>
+    <div class="fechdica">Confidencial — visível apenas para a coordenação. Finalidade exclusivamente assistencial: verifique abertura de protocolo, conduta, prescrição e registro. <b>O resultado de cada caso não afeta o pagamento de ninguém</b> — conforme ou oportunidade de melhoria, a internação é paga igual. O que libera o repasse é você <b>finalizar a auditoria do mês</b>, abaixo.</div>
     <button class="altbtn${pend?' on':''}" style="margin-top:10px" onclick="toggleAud()">
       ${pend?`${pend} caso(s) aguardando sua análise`:`Todos analisados${melhoria?` · ${melhoria} com oportunidade de melhoria`:''}`} ${_verAud?'▴':'▾'}
     </button>
+    ${fin
+      ? `<div class="card ok" style="margin-top:10px"><div class="ct">✓ Auditoria finalizada</div>
+          <div class="cs">${f.auditoria.ts} · ${f.auditoria.por} — ${f.auditoria.total} internação(ões) liberada(s) para pagamento</div>
+          <div class="tools"><button class="btn" onclick="reabrirAuditoria()">Reabrir auditoria</button></div></div>`
+      : `<div class="card warn" style="margin-top:10px"><div class="ct">Liberação do pagamento</div>
+          <div class="cb">As <b>${total} internação(ões)</b> de ${MES.label} só entram no repasse depois que
+          você finalizar a auditoria. Prazo: até o dia 01 do mês seguinte.</div>
+          <div class="tools"><button class="btn ok" onclick="finalizarAuditoria()">Finalizar auditoria do mês</button></div></div>`}
     ${_verAud?`<div class="altlist" style="max-height:420px">${am.map(x=>`
       <div class="ocard" style="border-left-color:${x.i.aud?(x.i.aud.res==='melhoria'?'var(--royal)':'var(--ok)'):'var(--warn)'}">
         <div class="ocard-txt"><b>${x.i.u}</b> · atendimento <b class="mono">${x.i.at}</b><br>
@@ -1081,7 +1364,7 @@ function pendencias(){
   const internAg=[], trocasNV=[], defs=[];
   SHIFTS.forEach(s=>{
     const x=st(s.id);
-    if((x.intern||[]).some(i=>!i.val)) internAg.push(s);
+    if(user.tipo==='coord' && (x.intern||[]).length && !auditoriaFinalizada(s.data.slice(0,7))) internAg.push(s);
     if(x.troca && x.troca.status==='aceita' && !x.troca.vista) trocasNV.push(s);
     if(statusOf(s)==='def') defs.push(s);
   });
@@ -1102,6 +1385,11 @@ function irPendencia(tipo){
 
 /* ====== FECHAMENTO EM DUAS ETAPAS (dia 25 parcial · dia 01 final) ====== */
 function fechDoMes(){ return FECH[MES.ym] || {}; }
+// A auditoria clínica do mês libera TODAS as internações daquele mês para pagamento.
+function auditoriaFinalizada(ym){ const f=FECH[ym]||{}; return !!(f.auditoria && f.auditoria.finalizada); }
+// Uma internação entra no pagamento se a auditoria do mês dela foi finalizada
+// OU se já havia sido validada individualmente no fluxo antigo (dados históricos).
+function internLiberada(s, i){ if(!s||!s.data) return i.val===true; return auditoriaFinalizada(s.data.slice(0,7)) || i.val===true; }
 function salvarFech(obj){
   FECH[MES.ym]=obj;
   if(supa) supa.from('estado').upsert({chave:'fech:'+MES.ym, valor:obj, atualizado_por:autor()},{onConflict:'chave'})
@@ -1197,7 +1485,7 @@ function fechView(){
     <div class="pendbox">
       <div class="pendtit">Pendências${totPend?' — toque para ir direto ao item':' — nada pendente ✓'}</div>
       <div class="pendgrid">
-        ${chip(p.internAg.length,'Internações a validar','intern')}
+        ${user.tipo==='coord'?chip(p.internAg.length,'Internações a auditar','intern'):''}
         ${chip(p.trocasNV.length,'Trocas a conferir','troca')}
         ${chip(p.defs.length,'Vagas a definir','def')}
         ${verOcor?chip(p.ocor,'Ocorrências a ver','ocor'):''}
@@ -1331,7 +1619,7 @@ function exportIntern(){
 // A folha é por POSTO (não por pessoa): trocas não obrigam a refazer o documento.
 function folhaPostos(){
   const ordemTurno = t => t==='DIA'?0:1;
-  return SHIFTS.filter(s=>s.setor==='EME')
+  return SHIFTS.filter(s=>{ const st=setorDe(s); return st && st.folha; })
     .sort((a,b)=> a.data.localeCompare(b.data) || ordemTurno(a.turno)-ordemTurno(b.turno) || a.papel.localeCompare(b.papel,'pt-BR'));
 }
 function printFolha(){
@@ -1424,15 +1712,25 @@ function parseData(v){
 }
 /* ================= GERAÇÃO DE ESCALA E REGRAS DE REPETIÇÃO ================= */
 // Estrutura padrão de um dia (conferida com as escalas de agosto e setembro)
-const GRADE_PADRAO = [
-  {setor:'EME', papel:'Plantonista 1', turno:'DIA'},
-  {setor:'EME', papel:'Plantonista 2', turno:'DIA'},
-  {setor:'EME', papel:'Plantonista 1', turno:'NOITE'},
-  {setor:'EME', papel:'Plantonista 2', turno:'NOITE'},
-  {setor:'EME', papel:'Diarista (3º plantonista)', turno:'DIA', soUteis:true},
-  {setor:'UNI', papel:'Hospitalista', turno:'DIA'},
-  {setor:'UNI', papel:'Plantonista', turno:'DIA'}
-];
+// A grade de geração sai do catálogo: cada posto × cada turno que ele cobre.
+// Acrescentar um setor ao catálogo já o faz aparecer na geração de escala.
+function gradeDe(sigla){
+  const st=SETORES[sigla]; if(!st || st.natureza==='informativo') return [];
+  const out=[];
+  (st.postos||[]).forEach(p=>(p.turnos||['DIA']).forEach(tn=>
+    out.push({setor:sigla, papel:p.papel, turno:tn, soUteis:!!p.soUteis,
+              semFeriado:!!p.semFeriado, diario:!!p.diario})));
+  // DIA antes de NOITE, na ordem dos postos
+  return out.sort((a,b)=>(a.turno==='DIA'?0:1)-(b.turno==='DIA'?0:1));
+}
+function setoresDeEscala(){
+  return Object.keys(SETORES).filter(k=>SETORES[k].natureza!=='informativo')
+    .sort((a,b)=>SETORES[a].ordem-SETORES[b].ordem);
+}
+// Todos os setores com escala: Emergência, Internação, UTI, Ortopedia,
+// Cirurgia Geral e Urologia. Meses já gravados não mudam — isto vale
+// para os meses gerados daqui em diante.
+const GRADE_PADRAO = setoresDeEscala().flatMap(gradeDe);
 const PADROES = {
   semanal:  'Toda semana no mesmo dia',
   quinzenal:'A cada 15 dias (mesmo dia da semana)',
@@ -1496,6 +1794,7 @@ function gerarShiftsDoMes(ym){
   diasDoMes(ym).forEach(iso=>{
     GRADE_PADRAO.forEach(g=>{
       if(g.soUteis && !ehUtil(iso)) return;         // 3º plantonista: só dias úteis
+      if(g.semFeriado && feriadoNome(iso)) return;  // Urologia: sem sobreaviso em feriado
       n++;
       const noite = g.turno==='NOITE';
       shifts.push({
@@ -1732,7 +2031,7 @@ function voltarRascunho(){
   loadEscala(); render(); toast('Voltou para rascunho.');
 }
 // Remover um posto (ex.: 3º plantonista em feriado que não terá)
-function ehTerceiro(s){ return s.setor==='EME' && String(s.papel||'').startsWith('Diarista'); }
+function ehTerceiro(s){ const p=postoDe(s); return !!(p && p.terceiro); }
 function semTerceiroLista(ym){ return (ESCALAS[ym] && ESCALAS[ym].semTerceiro) || []; }
 function semTerceiroNoDia(iso){ return semTerceiroLista(iso.slice(0,7)).find(x=>x.data===iso) || null; }
 function salvarEscalaMes(ym){
@@ -1926,8 +2225,9 @@ function prazoLancamento(ym){
 function openIntern(id){
   internId=id; uSel=null; protSel=null;   // sem pré-seleção: unidade e protocolo são escolhas obrigatórias
   const s=sh(id), K=st(id).intern||[];
-  // Segurança: internação só existe para Plantonista 1 e 2 da Emergência
-  if(!(s.setor==='EME' && (s.papel==='Plantonista 1' || s.papel==='Plantonista 2'))){
+  // Segurança: só os postos marcados no catálogo registram internação
+  const _p=postoDe(s);
+  if(!(_p && _p.intern)){
     toast('Internações são registradas apenas pelos plantonistas 1 e 2 da Emergência.'); return;
   }
   const bloq = bloqueioIntern(s);
@@ -1940,6 +2240,11 @@ function openIntern(id){
     ${user.tipo==='adm'
       ? 'Confira cada registro no sistema e valide. Somente internações validadas entram no fechamento e nas exportações para contas médicas.'
       : 'Registre cada internação com a unidade de destino e o nº de atendimento. O pagamento extra considera apenas internações validadas pelo administrativo.'}</p>
+    ${user.tipo==='med'?`<div class="epibox" style="border-color:var(--warn);background:var(--warnbg)">
+      <div class="epitit" style="color:var(--warn)">Antes de registrar</div>
+      <p class="epitxt">Este registro <b>ainda será avaliado pela coordenação do setor</b> antes de ser
+      liberado para pagamento. A liberação acontece quando a coordenação finaliza a auditoria clínica
+      do mês, até o dia 01 do mês seguinte.</p></div>`:''}
     <div id="ilist">${internLista(st(id).intern||[])}</div>
     ${!bloq?`<div class="semterceiro">Prazo para lançar internações de <b>${rotuloMes(s.data.slice(0,7))}</b>: até <b>${prazoLancamento(s.data.slice(0,7)).toLocaleDateString('pt-BR')} às 12h</b>. Depois disso o período é encerrado para solicitação das notas fiscais.</div>`:''}
     ${bloq?`<div class="rascbar" style="display:block">
@@ -1988,7 +2293,7 @@ function internLista(K){
   if(!K.length) return `<div class="empty" style="margin-bottom:14px;padding:16px">Nenhuma internação registrada neste plantão.</div>`;
   const s=sh(internId);
   const souExec = user.tipo==='med' && executor(s)===user.nome;
-  const podeValidar = user.tipo==='adm' || user.tipo==='coord';
+  const podeValidar = false;   // a liberação é em bloco, pela auditoria clínica da coordenação
   return `<div style="margin-bottom:14px">`+K.map((i,ix)=>{
     let botoes='';
     if(podeValidar) botoes += i.val
@@ -2004,7 +2309,9 @@ function internLista(K){
         <div style="font-size:11px;color:var(--mut)">${i.por} · ${i.ts}</div>
         ${i.prot?`<div style="font-size:11.5px;margin-top:2px">${i.prot.houve?`<b style="color:var(--royal)">Protocolo:</b> ${String(i.prot.qual).replace(/</g,'&lt;')}`:'<span style="color:var(--mut)">Sem protocolo assistencial</span>'}</div>`:''}
         ${i.aud?`<div style="margin-top:3px"><span class="chip c-ok">Auditada · ${i.aud.res==='melhoria'?'com oportunidade de melhoria':'conforme'}</span></div>`:''}
-        <div style="margin-top:3px"><span class="chip ${i.val?'c-ok':'c-troca'}">${i.val?'Validada · '+i.valPor+' · '+i.valTs:'Aguardando validação'}</span></div>
+        <div style="margin-top:3px">${internLiberada(s,i)
+            ? `<span class="chip c-ok">Liberada para pagamento${i.val?' · '+(i.valPor||''):''}</span>`
+            : `<span class="chip c-troca">Aguardando avaliação da coordenação</span>`}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">${botoes}</div>
     </div>`;}).join('')+`</div>`;
@@ -2029,6 +2336,10 @@ function invalIntern(ix){
 function addIntern(){
   const err=document.getElementById('ierr');
   const sBloq=sh(internId), bq=bloqueioIntern(sBloq);
+  // Lançamento depois da auditoria finalizada: entra direto no pagamento, sem passar pela amostra.
+  if(sBloq && auditoriaFinalizada(sBloq.data.slice(0,7))){
+    if(!confirm(`A auditoria clínica de ${rotuloMes(sBloq.data.slice(0,7))} já foi finalizada.\n\nEsta internação será liberada para pagamento SEM passar pela auditoria do mês.\n\nSe quiser que ela seja auditada, reabra a auditoria antes de lançar. Continuar mesmo assim?`)) return;
+  }
   if(bq){
     if(user.tipo!=='coord'){ err.textContent=`Período encerrado: ${bq.motivo}.`; err.style.display='block'; return; }
     if(!confirm(`LANÇAMENTO FORA DO PRAZO\n\nEste registro é retroativo: ${bq.motivo}.\n\nComo coordenação você pode prosseguir, mas a ação será registrada na auditoria. Continuar?`)) return;
@@ -2086,11 +2397,51 @@ const VALORES_PADRAO = {
   terceiro: 1250,                              // 3º plantonista (só dias úteis)
   hospitalista: 1150,                          // fixo
   prescritor_semana: 550, prescritor_fds: 650, // Plantonista UNI
+  uti_plantao: 1800, uti_diarista: 500,        // UTI — valor único, sem variação de dia
+  orto_plantao: 2000,                          // Ortopedia — valor único
+  uti_coord: 20000,                            // coordenação da UTI (nota fiscal separada)
+  cg_pacote: 44800, cg_sombra: 11616.40,       // Cirurgia Geral — pacote mensal e sombra
+  cg_inc_fds: 20, cg_inc_fer: 50,              // acréscimos do rateio da CG, em %
+  uro_mensal: 14000, neu_mensal: 6000,         // sobreavisos de valor mensal fixo
+  ped_mensal: 30000,                           // sobreaviso 24h de pediatria
   bonus_ui: 150, bonus_uti: 250,               // por internação validada
   // datas especiais (valor do plantonista 1 e 2), por MM-DD
   especiais: { '06-23':1687.50, '06-24':1950, '12-24':1687.50, '12-25':1950, '12-31':1687.50, '01-01':1950 }
 };
 // getValores(iso): valores vigentes NAQUELA DATA. Sem argumento, os de hoje.
+/* Catálogo das regras de repasse: rótulo, grupo e explicação de cada valor.
+   É isto que a tela da direção lista e permite editar. */
+const CATALOGO_REGRAS = [
+  ['Emergência', [
+    ['plant_semana','Plantonista 1 e 2 · semana','12h',''],
+    ['plant_fds','Plantonista 1 e 2 · fim de semana','12h',''],
+    ['terceiro','3º plantonista','12h','Somente dias úteis, liberado pela coordenação.']]],
+  ['Internação', [
+    ['hospitalista','Hospitalista','12h','Valor único, sem adicional de data especial.'],
+    ['prescritor_semana','Prescritor(a) · semana','12h',''],
+    ['prescritor_fds','Prescritor(a) · fim de semana','12h',''],
+    ['bonus_ui','Bônus de conversão · UI','internação',''],
+    ['bonus_uti','Bônus de conversão · UTI','internação','']]],
+  ['UTI', [
+    ['uti_plantao','Plantão','12h','Sem diferença em fim de semana ou feriado. Não exibido ao plantonista: o repasse é pacote único da PJ.'],
+    ['uti_diarista','Diarismo','dia','Nota fiscal separada.'],
+    ['uti_coord','Coordenação','mês','Nota fiscal separada.']]],
+  ['Ortopedia', [
+    ['orto_plantao','Plantão','12h','Sem diferença em fim de semana ou feriado.']]],
+  ['Cirurgia Geral', [
+    ['cg_pacote','Pacote mensal do sobreaviso','mês',''],
+    ['cg_sombra','Sombra','mês','Sai do pacote antes do rateio entre os dias.'],
+    ['cg_inc_fds','Acréscimo de fim de semana','%',''],
+    ['cg_inc_fer','Acréscimo de feriado nacional','%','Prevalece sobre o de fim de semana quando o feriado cai em sábado ou domingo.']]],
+  ['Urologia', [
+    ['uro_mensal','Valor mensal','mês','Dividido igualmente pelos dias úteis de sobreaviso do mês.']]],
+  ['Neurocirurgia', [
+    ['neu_mensal','Valor mensal fixo','mês','']]],
+  ['Pediatria', [
+    ['ped_mensal','Sobreaviso 24h · valor mensal','mês','Aparece em sobreavisos e na planilha de fixos; no consolidado conta uma vez.']]]
+];
+const REGRA_PCT = k => k==='cg_inc_fds' || k==='cg_inc_fer';
+
 function getValores(iso){
   const cfg = S._valores || {};
   const base = {...VALORES_PADRAO, ...cfg};
@@ -2112,44 +2463,40 @@ function getValores(iso){
 function historicoValores(){ return ((S._valores||{}).historico||[]).slice().sort((a,b)=>String(b.desde).localeCompare(String(a.desde))); }
 function ehFDS(iso){ const d=new Date(iso+'T12:00:00').getDay(); return d===0||d===6; } // dom/sáb
 // Classifica o serviço do plantão: chave única, rótulo e cor (para calendário e financeiro)
+// Qual faixa se aplica a este plantão: data especial, fim de semana, semana ou valor único
+function faixaDe(s, p, V){
+  if(!p) return null;
+  if(p.val && p.val.unico) return 'unico';
+  if(p.rateioDiaUtil) return 'unico';                       // Urologia: um só tipo de dia
+  if(p.especial && V.especiais[s.data.slice(5)]!=null) return 'especial';
+  if(p.rateioPacote && ehFeriadoRateio(s.data)) return 'feriado';
+  return ehFDS(s.data) ? 'fds' : 'semana';
+}
 function tipoServico(s){
-  const fds = ehFDS(s.data);
-  const md = s.data.slice(5);
-  if(s.setor==='EME'){
-    if(s.papel==='Plantonista 1' || s.papel==='Plantonista 2'){
-      const V=getValores(s.data);
-      if(V.especiais[md]!=null) return {chave:'eme12_esp', rot:'Plantonista EME · data especial', cor:'srv-eme12'};
-      return fds ? {chave:'eme12_fds', rot:'Plantonista EME · fim de semana', cor:'srv-eme12'}
-                 : {chave:'eme12_sem', rot:'Plantonista EME · dia de semana', cor:'srv-eme12'};
-    }
-    if(s.papel.startsWith('Diarista')) return {chave:'eme3', rot:'3º plantonista EME', cor:'srv-eme3'};
-    return {chave:'eme_outro', rot:'Emergência', cor:'srv-eme12'};
-  } else {
-    if(s.papel==='Hospitalista') return {chave:'hosp', rot:'Hospitalista', cor:'srv-hosp'};
-    if(s.papel==='Plantonista') return fds ? {chave:'presc_fds', rot:'Prescritor · fim de semana', cor:'srv-presc'}
-                                           : {chave:'presc_sem', rot:'Prescritor · dia de semana', cor:'srv-presc'};
-    return {chave:'uni_outro', rot:'Internação', cor:'srv-presc'};
-  }
+  const st=setorDe(s), p=postoDe(s);
+  const cor=(st&&st.cor)||'srv-eme12';
+  if(!p) return {chave: s.setor==='EME'?'eme_outro':'uni_outro', rot:(st&&st.nome)||s.setor, cor};
+  const V=getValores(s.data);
+  const f=faixaDe(s,p,V);
+  const chave=(p.srv&&(p.srv[f]||p.srv.unico)) || 'uni_outro';
+  const rot  =(p.rot&&(p.rot[f]||p.rot.unico)) || p.papel;
+  return {chave, rot, cor};
 }
 function valorPlantao(s){
-  const V=getValores(s.data); const md=s.data.slice(5); // MM-DD — valores vigentes NA DATA do plantão
-  const fds=ehFDS(s.data);
-  if(s.setor==='EME'){
-    if(s.papel==='Plantonista 1'||s.papel==='Plantonista 2'){
-      if(V.especiais[md]!=null) return V.especiais[md];       // datas especiais só p/ plant 1 e 2
-      return fds ? V.plant_fds : V.plant_semana;
-    }
-    if(s.papel.startsWith('Diarista')) return V.terceiro;     // 3º plantonista
-    return 0;
-  } else { // UNI
-    if(s.papel==='Hospitalista') return V.hospitalista;        // fixo
-    if(s.papel==='Plantonista') return fds ? V.prescritor_fds : V.prescritor_semana;
-    return 0;
-  }
+  const V=getValores(s.data);          // valores vigentes NA DATA do plantão
+  const p=postoDe(s); if(!p) return 0;
+  // Cirurgia Geral: o pacote do mês é rateado por dia; cada turno de 12h vale metade do dia
+  if(p.rateioPacote)  return cgValorDia(s.data)/2;
+  // Urologia: valor mensal dividido pelos dias de sobreaviso do mês
+  if(p.rateioDiaUtil) return uroValorDia(s.data);
+  const f=faixaDe(s,p,V);
+  if(f==='especial') return Number(V.especiais[s.data.slice(5)])||0;
+  const chave=(p.val&&(p.val[f]||p.val.unico));
+  return chave ? (Number(V[chave])||0) : 0;
 }
 // Demonstrativo de um médico no mês ativo
 function demonstrativo(nome){
-  const linhas=[]; let totalPlant=0, totalBonus=0, nUI=0, nUTI=0;
+  const linhas=[]; let totalPlant=0, totalBonus=0, nUI=0, nUTI=0, ocultoVal=0;
   SHIFTS.filter(s=>executor(s)===nome).forEach(s=>{
     if(statusOf(s)==='falta') return;                          // falta não conta
     const V=getValores(s.data);   // valores vigentes NA DATA do plantão
@@ -2157,13 +2504,17 @@ function demonstrativo(nome){
     let bonus=0, biUI=0, biUTI=0;
     if(s.setor==='EME' && (s.papel==='Plantonista 1'||s.papel==='Plantonista 2')){
       (st(s.id).intern||[]).forEach(i=>{
-        if(!i.val) return;   // basta a validação do contas médicas — a auditoria NÃO afeta pagamento
+        if(!internLiberada(s,i)) return;   // liberada pela auditoria clínica do mês (ou validada no fluxo antigo)
         if(i.u==='UTI'){bonus+=V.bonus_uti; biUTI++; nUTI++;} else {bonus+=V.bonus_ui; biUI++; nUI++;}
       });
     }
+    const stx=setorDe(s);
+    const oculto=!!(stx && stx.semValorAoMedico);     // UTI: pacote único da PJ
     totalPlant+=v; totalBonus+=bonus;
+    if(oculto) ocultoVal+=v;
     const ts=tipoServico(s);
-    linhas.push({data:s.data, dia:s.dia, setor:s.setor, papel:s.papel, valor:v, biUI, biUTI, bonus, srvChave:ts.chave, srvRot:ts.rot});
+    linhas.push({data:s.data, dia:s.dia, setor:s.setor, papel:s.papel, valor:v, oculto,
+                 biUI, biUTI, bonus, srvChave:ts.chave, srvRot:ts.rot});
   });
   linhas.sort((a,b)=>a.data.localeCompare(b.data));
   // agrega por tipo de serviço
@@ -2172,15 +2523,20 @@ function demonstrativo(nome){
     if(!porServico[l.srvChave]) porServico[l.srvChave]={rot:l.srvRot, qtd:0, valorUnit:l.valor, subtotal:0};
     porServico[l.srvChave].qtd++; porServico[l.srvChave].subtotal+=l.valor;
   });
-  return {linhas, porServico, totalPlant, totalBonus, total:totalPlant+totalBonus, nUI, nUTI};
+  const nOculto=linhas.filter(l=>l.oculto).length;
+  return {linhas, porServico, totalPlant, totalBonus, total:totalPlant+totalBonus,
+          nUI, nUTI, ocultoVal, nOculto,
+          totalVisivel: totalPlant - ocultoVal + totalBonus};
 }
 // ordem de exibição fixa dos serviços
-const SRV_ORDEM=['eme12_sem','eme12_fds','eme12_esp','eme3','hosp','presc_sem','presc_fds','eme_outro','uni_outro'];
-const SRV_ROT={eme12_sem:'Plantonista EME (semana)',eme12_fds:'Plantonista EME (fim de semana)',eme12_esp:'Plantonista EME (data especial)',eme3:'3º plantonista EME',hosp:'Hospitalista',presc_sem:'Prescritor (semana)',presc_fds:'Prescritor (fim de semana)',eme_outro:'Emergência (outro)',uni_outro:'Internação (outro)'};
+const _SRV=servicosCatalogo();
+const SRV_ORDEM=_SRV.ordem;
+const SRV_ROT=_SRV.rot;
 function BRL(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
 // Quem REALMENTE executa plantões no mês (inclui coordenação e substitutos fora da escala original)
 function executantes(){
-  return [...new Set(SHIFTS.map(s=>executor(s)))]
+  const alcance=meusSetores();
+  return [...new Set(SHIFTS.filter(s=>alcance.includes(s.setor)).map(s=>executor(s)))]
     .filter(n=>n && n!=='A DEFINIR')
     .sort((a,b)=>a.localeCompare(b,'pt-BR'));
 }
@@ -2191,21 +2547,28 @@ function finView(){
   if(user.tipo==='med'){
     const d=demonstrativo(user.nome);
     if(!d.linhas.length) return `<div class="now-head"><div class="t">A receber · ${MES.label}</div><div class="big">${BRL(0)}</div><div class="sub">Você não tem plantões neste mês.</div></div>`;
+    const visiveis=d.linhas.filter(l=>!l.oculto);
     return `
       <div class="now-head">
         <div class="t">A receber · ${MES.label}</div>
-        <div class="big">${BRL(d.total)}</div>
-        <div class="sub">${d.linhas.length} plantão(ões)${d.totalBonus?` · inclui ${BRL(d.totalBonus)} de internações (${d.nUI} UI, ${d.nUTI} UTI)`:''}</div>
+        <div class="big">${BRL(d.totalVisivel)}</div>
+        <div class="sub">${visiveis.length} plantão(ões)${d.totalBonus?` · inclui ${BRL(d.totalBonus)} de internações (${d.nUI} UI, ${d.nUTI} UTI)`:''}</div>
       </div>
-      <div class="tblwrap"><table>
+      ${visiveis.length?`<div class="tblwrap"><table>
         <thead><tr><th>Data</th><th>Plantão</th><th>Valor</th><th>Intern.</th></tr></thead>
-        <tbody>${d.linhas.map(l=>`<tr>
+        <tbody>${visiveis.map(l=>`<tr>
           <td>${fmtD(l.data)} <span style="color:var(--mut)">${l.dia}</span></td>
-          <td>${l.setor==='EME'?'EME':'UNI'} · ${l.papel}</td>
+          <td>${(SETORES[l.setor]||{}).sigla||l.setor} · ${rotuloPapel(l)}</td>
           <td class="n">${BRL(l.valor)}</td>
           <td class="n">${l.bonus?`+${BRL(l.bonus)}`:'–'}</td></tr>`).join('')}</tbody>
-        <tfoot><tr><td colspan="2"><b>Total</b></td><td class="n" colspan="2"><b>${BRL(d.total)}</b></td></tr></tfoot>
-      </table></div>
+        <tfoot><tr><td colspan="2"><b>Total</b></td><td class="n" colspan="2"><b>${BRL(d.totalVisivel)}</b></td></tr></tfoot>
+      </table></div>`:''}
+      ${d.nOculto?`<div class="pendbox" style="margin-top:12px">
+        <div class="pendtit">UTI · ${d.nOculto} plantão(ões) de 12h</div>
+        <p style="font-size:12.5px;color:var(--mut);margin:6px 0 0;line-height:1.5">
+        O repasse da UTI sai em <b>pacote único para a PJ do setor</b>, sujeito a taxa
+        administrativa própria. Por isso aqui aparece só a contagem — o valor é tratado
+        com a coordenação do serviço.</p></div>`:''}
       <p style="font-size:12px;color:var(--mut);margin-top:10px">Valores sujeitos a conferência da coordenação e do setor de contas médicas. Apenas internações validadas entram no cálculo.</p>`;
   }
   // Coordenação: todos os médicos + total geral + configurar valores
@@ -2313,6 +2676,336 @@ function salvarValores(){
   supa.from('estado').upsert({chave:'valores', valor:nv, atualizado_por:autor()},{onConflict:'chave'})
     .then(({error})=>{ if(error) toast('Falha ao salvar valores.'); else toast('Reajuste registrado a partir de '+fmtD(desde)+'.'); });
   closeOv(); render();
+}
+
+
+/* ---------- Regras de repasse (direção) ---------- */
+/* Quem pode ver valores de repasse na tela.
+   A secretaria da Cirurgia Geral monta a escala e não vê remuneração.
+   O médico vê só o que é dele, tratado dentro de cada tela. */
+/* Setores que este usuário enxerga.
+   A coluna 'setores' em perfis limita coordenação e secretaria ao próprio
+   serviço. Vazia significa todos — é o caso da direção e do administrativo.
+   O médico enxerga os setores onde tem plantão no mês. */
+function meusSetores(){
+  if(!user) return [];
+  const todos = setoresDeEscala();
+  if(user.tipo==='med'){
+    const meus = [...new Set(SHIFTS.filter(s=>executor(s)===user.nome).map(s=>s.setor))];
+    return meus.length ? todos.filter(x=>meus.includes(x)) : todos;
+  }
+  const lista = String(user.setores||'').split(',').map(x=>x.trim().toUpperCase()).filter(Boolean);
+  return lista.length ? todos.filter(x=>lista.includes(x)) : todos;
+}
+function alcancaSetor(sg){ return meusSetores().includes(sg); }
+function podeVerValores(){
+  if(!user) return false;
+  if(user.secretaria) return false;
+  return user.tipo==='coord' || user.tipo==='adm' || user.diretor;
+}
+function fmtRegra(k,v){ return REGRA_PCT(k) ? Number(v).toLocaleString('pt-BR')+'%' : BRL(Number(v)); }
+function regrasView(){
+  if(!user.diretor) return `<div class="rg-box">Tela exclusiva da direção médica.</div>`;
+  if(!podeVerValores()) return `<div class="rg-box">Sem acesso a valores de repasse.</div>`;
+  const V=getValores(todayISO());
+  const hist=historicoValores();
+  return `<div>
+    <div class="rg-top">
+      <h3>Regras de repasse</h3>
+      <p style="margin:0;font-size:13px;color:var(--mut);line-height:1.5">Todos os valores que o aplicativo usa para calcular o repasse.
+      Cada alteração grava autor, data e hora na auditoria e vale <b>a partir da data informada</b> —
+      plantões e internações anteriores mantêm os valores antigos.</p>
+    </div>
+    ${CATALOGO_REGRAS.map(([grupo,itens])=>`
+      <div class="rg-sec">${grupo}</div>
+      ${itens.map(([k,rot,un,obs])=>`<div class="rg-row">
+        <div class="rl"><div class="rn">${rot}</div>${obs?`<div class="ro">${obs}</div>`:''}</div>
+        <div class="rv"><b>${fmtRegra(k,V[k])}</b>
+          <span>${REGRA_PCT(k)?'sobre o dia útil':'por '+un}</span></div>
+        <button class="btn" onclick="abrirRegra('${k}')">editar</button>
+      </div>`).join('')}
+    `).join('')}
+    <div class="rg-sec">Datas especiais da Emergência</div>
+    <div class="rg-box">
+      <p>Valem somente para os plantonistas 1 e 2. Não se aplicam a 3º plantonista,
+      hospitalista nem prescritor(a).</p>
+      ${Object.entries(V.especiais||{}).sort().map(([md,v])=>
+        `<div class="rg-li"><span>${md.split('-').reverse().join('/')}</span>
+         <span><b>${BRL(Number(v))}</b> <span class="q">por 12h</span></span></div>`).join('')}
+    </div>
+    <div class="rg-sec">Reajustes registrados</div>
+    <div class="rg-box">
+      ${hist.length?hist.map(h=>`<div class="rg-li">
+        <span>a partir de <b>${fmtD(h.desde)}</b></span>
+        <span class="q">${h.por||'—'} · ${h.ts||''}</span></div>`).join('')
+       :'<p style="margin:0">Nenhum reajuste registrado ainda.</p>'}
+    </div>
+  </div>`;
+}
+function abrirRegra(k){
+  const item=CATALOGO_REGRAS.flatMap(([g,is])=>is.map(i=>[g,...i])).find(x=>x[1]===k);
+  if(!item) return;
+  const [grupo,,rot,un,obs]=item;
+  const V=getValores(todayISO());
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  ov.innerHTML=`<div class="sheet">
+    <h3>${grupo} · ${rot}</h3>
+    <p style="margin:0 0 10px;font-size:13px;color:var(--mut);line-height:1.5">Valor atual:
+      <b>${fmtRegra(k,V[k])}</b>${obs?'<br>'+obs:''}</p>
+    <label class="rg-lbl">Novo valor${REGRA_PCT(k)?' (em %)':' (em reais)'}</label>
+    <input type="text" inputmode="decimal" id="rg_v" value="${String(V[k]).replace('.',',')}">
+    <label class="rg-lbl">A partir de qual data passa a valer</label>
+    <input type="date" id="rg_d" value="${todayISO()}">
+    <div id="rgerr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin-bottom:10px"></div>
+    <div class="row">
+      <button class="btn" onclick="closeOv()">Cancelar</button>
+      <button class="btn pri" onclick="salvarRegra('${k}')">Salvar</button>
+    </div></div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
+  document.body.appendChild(ov);
+}
+function salvarRegra(k){
+  const e=document.getElementById('rgerr');
+  const erro=m=>{ e.textContent=m; e.style.display='block'; };
+  const item=CATALOGO_REGRAS.flatMap(([g,is])=>is.map(i=>[g,...i])).find(x=>x[1]===k);
+  const rot=item?item[2]:k;
+  const desde=(document.getElementById('rg_d').value||'').trim();
+  if(!desde) return erro('Informe a data a partir da qual o novo valor vale.');
+  const n=parseFloat((document.getElementById('rg_v').value||'').replace(/\./g,'').replace(',','.'));
+  if(isNaN(n)||n<0) return erro('Valor inválido.');
+  if(REGRA_PCT(k) && n>200) return erro('Acréscimo acima de 200% — confira o número.');
+  const antes=Number(getValores(desde)[k]);
+  if(Math.abs(n-antes)<0.001){ toast('O valor não mudou.'); closeOv(); return; }
+  if(!confirm(`${rot}\n\n${fmtRegra(k,antes)} → ${fmtRegra(k,n)}\na partir de ${fmtD(desde)}\n\n`+
+              `Lançamentos ANTERIORES a essa data mantêm o valor antigo.`)) return;
+  const nv={...(S._valores||{})};
+  const hist=[...((S._valores||{}).historico||[])];
+  const i=hist.findIndex(h=>h.desde===desde);
+  if(i>=0) hist[i]={...hist[i], [k]:n, por:autor(), ts:new Date().toLocaleString('pt-BR')};
+  else hist.push({desde, [k]:n, por:autor(), ts:new Date().toLocaleString('pt-BR')});
+  nv.historico=hist.sort((a,b)=>String(a.desde).localeCompare(String(b.desde)));
+  log('Regra de repasse alterada a partir de '+fmtD(desde), `${rot}: ${fmtRegra(k,antes)} → ${fmtRegra(k,n)}`);
+  S._valores=nv;
+  supa.from('estado').upsert({chave:'valores', valor:nv, atualizado_por:autor()},{onConflict:'chave'})
+    .then(({error})=>{ toast(error?'Falha ao salvar.':rot+' atualizado a partir de '+fmtD(desde)+'.'); });
+  closeOv(); render();
+}
+
+
+/* ---------- Serviços fixos e coordenações ----------
+   Valores mensais que se repetem. Neurocirurgia e Pediatria aparecem aqui
+   para a conferência do contas médicas, mas já entram no bloco de
+   sobreavisos — por isso vêm marcadas e não somam duas vezes. */
+/* ---------- Contatos de acionamento ----------
+   Telefones para o plantonista acionar a especialidade na hora.
+   CG e URO têm escala: o nome do dia sai da escala, o telefone daqui.
+   NEU e PED são cobertura contínua, sempre a mesma pessoa. */
+const CONTATOS = {
+  CG: {nome:'Cirurgia Geral', escala:true, equipe:[
+    ['Luiz M. Filho','(71) 99407-9005'], ['Luiz Sampaio','(71) 98226-0409'],
+    ['Matheus Serapião','(71) 99951-8595'], ['Emerson Prisco','(71) 99957-6615'],
+    ['Paulo Tominaga','(75) 99188-2145']]},
+  URO:{nome:'Urologia', escala:true, nota:'Dias úteis, 07h às 19h. Fora do horário, pode ligar para tirar dúvida ou avaliar viabilidade.', equipe:[
+    ['Davi Salomão','(71) 99957-2771'], ['Hugo Novaes','(71) 99961-2000'],
+    ['André Torres','(71) 99225-3701']]},
+  NEU:{nome:'Neurocirurgia', nota:'Sobreaviso 24h, todos os dias', equipe:[
+    ['Adroaldo Rossetti','(71) 99298-9999']]},
+  PED:{nome:'Pediatria', nota:'Sobreaviso 24h, todos os dias', equipe:[
+    ['Marlon Mascarenhas','(71) 99231-4747']]}
+};
+function telDe(sg, nome){
+  const c=CONTATOS[sg]; if(!c) return null;
+  const achou=(c.equipe||[]).find(([n])=>n===nome);
+  return achou?achou[1]:null;
+}
+function soDigitos(t){ return String(t||'').replace(/\D/g,''); }
+
+const FIXOS = [
+  ['Magno Cezar',              'Coordenação da Emergência',   12000, 'gestao'],
+  ['Magno Cezar',              'Coordenação do Internamento', 16000, 'gestao'],
+  ['Poliana Requião',          'Coordenação da UTI',          20000, 'gestao'],
+  ['Breno Cathalá',            'Coordenação da Ortopedia',    15000, 'gestao'],
+  ['Luiz Sampaio',             'Coordenação da Cirurgia Geral',12000,'gestao'],
+  ['Dênio Barros',             'Coordenação da Infectologia', 10500, 'gestao'],
+  ['Magno Cezar',              'Serviço de Nutrologia',       12000, 'apoio'],
+  ['Alessandra de Faro',       'Gastroenterologia',           10000, 'apoio'],
+  ['Rebeca Andrade',           'Psicologia',                   5000, 'apoio'],
+  ['Antônio de Araujo Dantas', 'Serviço Social',               3500, 'apoio'],
+  ['Marlene Ramalho',          'Fonoaudiologia',               1500, 'apoio'],
+  ['Adroaldo Rossetti',        'Sobreaviso de Neurocirurgia',  null, 'apoio', 'neu_mensal'],
+  ['Marlon Mascarenhas',       'Sobreaviso de Pediatria',      null, 'apoio', 'ped_mensal']
+];
+
+/* ---------- Custos de honorários médicos ----------
+   Cinco classificações. Plantão e produção saem da escala e dos
+   lançamentos do mês; o resto vem das regras de repasse. */
+function custosHM(){
+  const iso = MES.ym ? MES.ym+'-01' : todayISO();
+  const V = getValores(iso);
+  const ym = iso.slice(0,7);
+
+  // 1 · plantão assistencial, direto da escala
+  const plant = {};
+  SHIFTS.forEach(s=>{
+    if(statusOf(s)==='falta') return;
+    const ts = tipoServico(s);
+    const k  = s.setor+'|'+ts.rot;
+    plant[k] = (plant[k]||0) + valorPlantao(s);
+  });
+  // a Cirurgia Geral é pacote: o rateio já soma o pacote menos a sombra
+  const itensPlant = Object.entries(plant)
+    .filter(([k])=>!k.startsWith('CG|') && !k.startsWith('URO|'))
+    .map(([k,v])=>[k.split('|')[1], v]).sort((a,b)=>b[1]-a[1]);
+
+  // 2 · sobreavisos
+  const itensSob = [
+    ['Cirurgia Geral · pacote mensal', Number(V.cg_pacote||0)],
+    ['Pediatria · sobreaviso 24h',     Number(V.ped_mensal||0)],
+    ['Urologia · sobreaviso',          Number(V.uro_mensal||0)],
+    ['Neurocirurgia · sobreaviso',     Number(V.neu_mensal||0)]
+  ].sort((a,b)=>b[1]-a[1]);
+
+  // 3 e 4 · gestão e apoio, com as linhas já contadas marcadas
+  const vFixo = f => f[2]!=null ? Number(f[2]) : Number(V[f[4]]||0);
+  const itensGest = FIXOS.filter(f=>f[3]==='gestao')
+    .map(f=>[f[1]+' · '+f[0], vFixo(f), false]).sort((a,b)=>b[1]-a[1]);
+  const itensApoio = FIXOS.filter(f=>f[3]==='apoio')
+    .map(f=>[f[1]+' · '+f[0], vFixo(f), !!f[4]]).sort((a,b)=>b[1]-a[1]);
+
+  // 5 · produção variável
+  let bUI=0, bUTI=0, nUI=0, nUTI=0;
+  SHIFTS.forEach(s=>{
+    if(statusOf(s)==='falta') return;
+    const vd = getValores(s.data);
+    (st(s.id).intern||[]).forEach(i=>{
+      if(!internLiberada(s,i)) return;
+      if(i.u==='UTI'){ bUTI+=Number(vd.bonus_uti||0); nUTI++; }
+      else { bUI+=Number(vd.bonus_ui||0); nUI++; }
+    });
+  });
+  const itensProd = [];
+  if(nUI)  itensProd.push([`Conversões UI · ${nUI} × ${BRL(Number(V.bonus_ui||0))}`, bUI]);
+  if(nUTI) itensProd.push([`Conversões UTI · ${nUTI} × ${BRL(Number(V.bonus_uti||0))}`, bUTI]);
+
+  const soma = a => a.reduce((x,i)=>x + (i[2]?0:i[1]), 0);
+  const classes = [
+    {id:'plant', nome:'Plantão assistencial', cor:'#2756C3', tipo:'fixo',
+     obs:'Presença médica por 12h, direto da escala do mês', itens:itensPlant, total:soma(itensPlant)},
+    {id:'sobre', nome:'Sobreaviso', cor:'#1C7C54', tipo:'fixo',
+     obs:'Disponibilidade de especialista fora da presença física', itens:itensSob, total:soma(itensSob)},
+    {id:'gest', nome:'Gestão e coordenação', cor:'#6B4FBB', tipo:'fixo',
+     obs:'Coordenações de serviço', itens:itensGest, total:soma(itensGest)},
+    {id:'apoio', nome:'Serviços de apoio', cor:'#B06E0A', tipo:'fixo',
+     obs:'Equipes de suporte assistencial', itens:itensApoio, total:soma(itensApoio)},
+    {id:'prod', nome:'Produção variável', cor:'#C0392B', tipo:'variável',
+     obs:'Bônus por conversão de internação, sobre produção auditada', itens:itensProd, total:soma(itensProd)}
+  ];
+  const total = classes.reduce((a,c)=>a+c.total,0);
+  const variavel = classes.find(c=>c.id==='prod').total;
+
+  // por setor, para a leitura do corporativo
+  const porSetor = {};
+  const add=(sg,v)=>{ porSetor[sg]=(porSetor[sg]||0)+v; };
+  SHIFTS.forEach(s=>{ if(statusOf(s)!=='falta' && s.setor!=='CG' && s.setor!=='URO') add(s.setor, valorPlantao(s)); });
+  add('CG',  Number(V.cg_pacote||0));
+  add('URO', Number(V.uro_mensal||0));
+  add('NEU', Number(V.neu_mensal||0));
+  add('PED', Number(V.ped_mensal||0));
+  add('UNI', bUI+bUTI);
+  FIXOS.forEach(f=>{ if(f[4]) return;
+    const sg = /Emergência/.test(f[1])?'EME' : /Internamento/.test(f[1])?'UNI'
+             : /UTI/.test(f[1])?'UTI' : /Ortopedia/.test(f[1])?'ORT'
+             : /Cirurgia Geral/.test(f[1])?'CG' : 'OUTROS';
+    add(sg, vFixo(f));
+  });
+  const nomeSg = sg => (SETORES[sg]||{}).nome || (sg==='PED'?'Pediatria':'Outros serviços');
+  const setores = Object.entries(porSetor).map(([sg,v])=>[nomeSg(sg), v, sg])
+    .filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
+  const totalSetores = setores.reduce((a,s)=>a+s[1],0);
+
+  return {classes, total, variavel, fixo:total-variavel, setores, totalSetores, ym};
+}
+
+function biView(){
+  if(!podeVerValores()) return `<div class="rg-box">Sem acesso a valores de repasse.</div>`;
+  const h = custosHM();
+  const mx = Math.max(...h.classes.map(c=>c.total), 1);
+  const mxs = Math.max(...h.setores.map(s=>s[1]), 1);
+  const difere = Math.abs(h.total - h.totalSetores) > 0.01;
+  const mil = v => 'R$ '+(v/1000).toLocaleString('pt-BR',{maximumFractionDigits:0})+' mil';
+  return `<div>
+    <div class="now-head">
+      <div class="t">Custos de honorários médicos · ${MES.label}</div>
+      <div class="big">${BRL(h.total)}</div>
+      <div class="sub">plantão, sobreaviso, gestão, apoio e produção</div>
+    </div>
+    <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+      <div class="kpi"><div class="v" style="font-size:17px">${mil(h.fixo)}</div>
+        <div class="l">Custo fixo · ${(h.fixo/h.total*100).toFixed(1).replace('.',',')}%</div></div>
+      <div class="kpi"><div class="v" style="font-size:17px">${mil(h.variavel)}</div>
+        <div class="l">Variável · só conversão de internação</div></div>
+    </div>
+    <div class="rg-box"><p style="margin:0">Na visão corporativa, <b>só a conversão de internação
+      é custo variável</b>. Plantão, sobreaviso, coordenação e apoio entram como compromisso fixo
+      mensal, ainda que o valor oscile com o número de dias do mês.</p></div>
+    ${difere?`<div class="rg-box" style="border-color:var(--danger)">
+      <p style="margin:0;color:var(--danger)"><b>Conferência cruzada falhou.</b>
+      Por classificação dá ${BRL(h.total)}; por setor, ${BRL(h.totalSetores)}.
+      A diferença de ${BRL(Math.abs(h.total-h.totalSetores))} indica lançamento contado duas vezes
+      ou faltando. Avise a direção antes de enviar ao corporativo.</p></div>`
+     :`<div class="rg-box" style="border-color:var(--ok)">
+      <p style="margin:0;color:var(--ok)"><b>Conferência cruzada ok.</b> As duas aberturas —
+      por classificação e por setor — fecham no mesmo total.</p></div>`}
+    <div class="rg-sec">Por classificação</div>
+    <div class="rg-box">
+      ${h.classes.map(c=>`<div style="margin-bottom:13px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:5px">
+          <span style="font-size:13px;font-weight:700">${c.nome}</span>
+          <span style="font-size:13px;font-weight:800;white-space:nowrap">${BRL(c.total)}</span></div>
+        <div style="height:9px;background:var(--ice);border-radius:5px;overflow:hidden">
+          <div style="height:100%;width:${c.total/mx*100}%;background:${c.cor};border-radius:5px"></div></div>
+        <div style="font-size:11px;color:var(--mut);margin-top:3px">
+          ${(c.total/h.total*100).toFixed(1).replace('.',',')}% do total · custo ${c.tipo} · ${c.obs}</div>
+      </div>`).join('')}
+    </div>
+    ${h.classes.filter(c=>c.itens.length).map(c=>`
+      <div class="rg-sec">${c.nome}</div>
+      <div class="rg-box">
+        ${c.itens.map(([n,v,jaContado])=>`<div class="rg-li">
+          <span>${n}${jaContado?' <span class="q">· já contado em sobreavisos</span>':''}</span>
+          <span${jaContado?' class="q"':''}><b>${BRL(v)}</b></span></div>`).join('')}
+      </div>`).join('')}
+    <div class="rg-sec">Por setor</div>
+    <div class="rg-box">
+      ${h.setores.map(([n,v])=>`<div style="margin-bottom:11px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px">
+          <span style="font-size:13px;font-weight:600">${n}</span>
+          <span style="font-size:13px;font-weight:800;white-space:nowrap">${BRL(v)}</span></div>
+        <div style="height:7px;background:var(--ice);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${v/mxs*100}%;background:var(--royal);border-radius:4px"></div></div>
+      </div>`).join('')}
+      <div class="rg-li" style="font-weight:800;border-top:2px solid var(--line);padding-top:8px">
+        <span>Total</span><span>${BRL(h.totalSetores)}</span></div>
+    </div>
+    <div class="rg-box"><p style="margin:0">Cada setor soma plantão, sobreaviso, coordenação e
+      produção daquele serviço — é o custo total de HM da especialidade, que é como o corporativo
+      cobra o número.</p></div>
+    <div class="tools"><button class="btn pri" onclick="exportBI()">Exportar custos de HM (CSV)</button></div>
+  </div>`;
+}
+function exportBI(){
+  const h=custosHM();
+  log('Exportação dos custos de HM', MES.label);
+  const linhas=[['competencia','bloco','item','valor_R$'].join(';')];
+  h.classes.forEach(c=>c.itens.forEach(([n,v,ja])=>{
+    if(ja) return;
+    linhas.push([h.ym, c.nome, String(n).replace(/;/g,','), v.toFixed(2)].join(';'));
+  }));
+  linhas.push([h.ym,'TOTAL','',h.total.toFixed(2)].join(';'));
+  const blob=new Blob(['\uFEFF'+linhas.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`custos_hm_${h.ym}.csv`; a.click();
+  toast('Custos de HM exportados.');
 }
 
 function internPendentes(){ let n=0;
