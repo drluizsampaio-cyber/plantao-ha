@@ -120,6 +120,26 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .rg-li .q{color:var(--mut);font-size:11.5px}
 .rg-lbl{display:block;font-size:12px;font-weight:700;color:var(--mut);margin:10px 0 4px}
 .tools{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.hubsec{font-size:12px;font-weight:800;color:var(--mut);text-transform:uppercase;
+  letter-spacing:.05em;margin:18px 0 9px}
+.hubsec:first-of-type{margin-top:4px}
+.hub{display:grid;grid-template-columns:repeat(auto-fill,minmax(152px,1fr));gap:10px}
+.tile{background:var(--paper);border:1px solid var(--line);border-radius:15px;padding:14px;
+  cursor:pointer;transition:.16s;text-align:left;font-family:inherit;position:relative;overflow:hidden}
+.tile:active{transform:scale(.98)}
+.tile:hover{border-color:var(--royal);box-shadow:0 6px 18px rgba(18,32,95,.09)}
+.tile .ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+  margin-bottom:9px;font-size:18px}
+.tile .tt{font-weight:700;font-size:14.5px;color:var(--navy);line-height:1.25}
+.tile .ts{font-size:11.5px;color:var(--mut);margin-top:3px;line-height:1.35}
+.tile .bdg{position:absolute;top:10px;right:10px;background:var(--danger);color:#fff;
+  font-size:10.5px;font-weight:800;min-width:19px;height:19px;border-radius:10px;
+  display:grid;place-items:center;padding:0 5px}
+.hubtop{background:linear-gradient(135deg,#12205F,#2756C3);color:#fff;border-radius:15px;
+  padding:17px 18px;margin-bottom:16px}
+.hubtop .q{font-size:12px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.05em}
+.hubtop .n{font-size:21px;font-weight:800;margin-top:4px;letter-spacing:-.4px}
+.hubtop .m{font-size:13px;opacity:.85;margin-top:3px}
 .finexp{color:var(--mut);font-size:11px;margin-left:4px}
 .pendbox{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0}
 .pendtit{font-size:12px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;margin-bottom:10px}
@@ -291,7 +311,7 @@ const supa = (CONFIGURADO && window.supabase) ? window.supabase.createClient(SUP
 let S = {};            // { shiftId:{status,in,out,troca,intern...}, _escala:{shifts,info} }
 let AUD = [];          // trilha de auditoria (carregada do banco)
 let user = null;       // {tipo:'med'|'coord'|'adm', nome, email}
-let tab = 'agora';
+let tab = 'hub';
 let selDate = null;
 let selSetor = 'TODOS';
 
@@ -604,15 +624,18 @@ function render(){
   const app = document.getElementById('app');
   if (!user){ app.innerHTML = loginView(); return; }
   if (!user.senhaTrocada){ app.innerHTML = primeiroAcessoView(); return; }
+  // Rodapé enxuto: Início mais os destinos de uso diário.
+  // Tudo o mais fica a um toque, nos cards da tela inicial.
   const tabs = user.secretaria
-    ? [['escala','Escala',icoCal()]]
+    ? [['hub','Início',icoHome()],['escala','Escala',icoCal()]]
     : user.tipo==='med'
-    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['meus','Meus plantões',icoUser()],['ocor','Ocorrências',icoWarn()],['fin','A receber',icoCash()]]
+    ? [['hub','Início',icoHome()],['escala','Escala',icoCal()],['agora','Agora',icoNow()],
+       ['fin', (meusSetores().length===1 && (SETORES[meusSetores()[0]]||{}).semValorAoMedico)?'Plantões':'A receber', icoCash()]]
     : user.diretor
-    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['bi','Custos',icoCash()],['regras','Regras',icoDoc()],['aud','Auditoria',icoLog()]]
+    ? [['hub','Início',icoHome()],['escala','Escala',icoCal()],['bi','Custos',icoCash()],['regras','Regras',icoDoc()]]
     : user.tipo==='coord'
-    ? [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['ocor','Ocorrências',icoWarn()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['aud','Auditoria',icoLog()]]
-    : [['agora','Agora',icoNow()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()],['bi','Custos',icoCash()],['aud','Auditoria',icoLog()]];
+    ? [['hub','Início',icoHome()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()]]
+    : [['hub','Início',icoHome()],['fin','Financeiro',icoCash()],['bi','Custos',icoCash()],['fech','Fechamento',icoDoc()]];
   if (!tabs.some(t=>t[0]===tab)) tab=tabs[0][0];
   const quem = user.diretor?'Direção Médica · '+user.nome
              : user.secretaria?'Secretaria · sobreaviso de Cirurgia Geral'
@@ -625,10 +648,11 @@ function render(){
         <button onclick="abrirMinhaSenha()">senha</button> · <button onclick="logout()">sair</button></div>
     </header>
     <nav>${tabs.map(t=>{
-      const badge = (t[0]==='ocor' && user.tipo==='coord' && totalOcorNaoVistas()>0) ? '<span class="navbadge blink"></span>' : '';
+      const badge = (t[0]==='hub' && (user.tipo==='coord'||user.diretor) && totalOcorNaoVistas()>0)
+        ? '<span class="navbadge blink"></span>' : '';
       return `<button class="${tab===t[0]?'on':''}" onclick="go('${t[0]}')">${t[2]}${t[1]}${badge}</button>`;
     }).join('')}</nav>
-    <main>${tab==='agora'?agoraView():tab==='escala'?escalaView():tab==='meus'?meusView()
+    <main>${tab==='hub'?hubView():tab==='agora'?agoraView():tab==='escala'?escalaView():tab==='meus'?meusView()
       :tab==='aud'?audView():tab==='fin'?finView():tab==='ocor'?ocorView()
       :tab==='regras'?regrasView():tab==='bi'?biView():fechView()}</main>`;
 }
@@ -720,7 +744,7 @@ async function aposLogin(session){
   await carregarNuvem();
   assinarTempoReal();
   carregarAud();
-  tab='agora'; render();
+  tab='hub'; render();
   verificarTrocasPendentes();   // popup cobrando resposta de troca(s) recebida(s)
 }
 // Popup que cobra resposta das trocas pendentes destinadas ao usuário logado
@@ -800,7 +824,7 @@ async function salvarPrimeiroAcesso(){
   await carregarElenco(); await carregarNuvem(); assinarTempoReal(); carregarAud();
   log('Senha definida no primeiro acesso',
       gravou ? '' : 'marcador não gravado — falta permissão de UPDATE em perfis');
-  tab='agora'; render();
+  tab='hub'; render();
   toast(gravou ? 'Senha definida. Bem-vindo(a) ao Plantão HA.'
                : 'Senha alterada, mas o registro não foi gravado. Avise a coordenação.');
   verificarTrocasPendentes();
@@ -831,6 +855,75 @@ async function salvarMinhaSenha(){
 }
 
 /* ---------- Agora ---------- */
+function hubView(){
+  const tile=(ic,bg,tt,ts,dest,badge)=>
+    `<button class="tile" onclick="go('${dest}')">${badge?`<span class="bdg">${badge}</span>`:''}
+      <div class="ic" style="background:${bg}">${ic}</div>
+      <div class="tt">${tt}</div><div class="ts">${ts}</div></button>`;
+  const sgs=meusSetores();
+  const nomeSetores = sgs.length && sgs.length<4
+    ? sgs.map(s=>SETORES[s].nome).join(' · ') : 'Todos os setores';
+  const soContagem = sgs.length===1 && SETORES[sgs[0]] && SETORES[sgs[0]].semValorAoMedico;
+  const pend = (typeof pendencias==='function') ? (pendencias()||[]).length : 0;
+  const ocorN = (user.tipo==='coord'||user.diretor) ? totalOcorNaoVistas() : 0;
+  const quem = user.diretor?'Direção médica' : user.secretaria?'Secretaria'
+             : user.tipo==='coord'?'Coordenação' : user.tipo==='adm'?'Administrativo':'Plantonista';
+  const t=[`<div class="hubtop"><div class="q">${quem}</div>
+      <div class="n">${user.nome}</div><div class="m">${nomeSetores} · ${MES.label}</div></div>`];
+
+  if(user.secretaria){
+    t.push(`<div class="hubsec">Escala sob minha responsabilidade</div><div class="hub">`);
+    t.push(tile('🗓️','#E6F7F0','Sobreaviso','Cirurgia Geral · montar e ajustar','escala'));
+    t.push(`</div>`);
+  }
+  else if(user.tipo==='med'){
+    t.push(`<div class="hubsec">Meu dia a dia</div><div class="hub">`);
+    t.push(tile('🕐','#E8EEFB','Agora','Quem está no hospital e quem acionar','agora'));
+    t.push(tile('📅','#E8EEFB','Minha escala',`${nomeSetores} · ${MES.label}`,'escala'));
+    t.push(tile('📋','#E8F5EF','Meus plantões','O que você já cumpriu no mês','meus'));
+    t.push(soContagem
+      ? tile('📊','#E8F5EF','Resumo do mês','Total cumprido · valores com a coordenação','fin')
+      : tile('💰','#E8F5EF','A receber','Seus plantões e o valor de cada um','fin'));
+    t.push(tile('⚠️','#FFF7E6','Ocorrências','Registrar evento do plantão','ocor'));
+    t.push(`</div>`);
+  }
+  else if(user.diretor){
+    t.push(`<div class="hubsec">Direção</div><div class="hub">`);
+    t.push(tile('📜','#EFE8FB','Regras de repasse','Todos os valores · editável','regras'));
+    t.push(tile('📈','#E8EEFB','Custos de HM','Painel gerencial por classificação','bi'));
+    t.push(`</div>`);
+    t.push(`<div class="hubsec">Operação</div><div class="hub">`);
+    t.push(tile('🕐','#E8EEFB','Agora','Quem está no hospital e quem acionar','agora'));
+    t.push(tile('📅','#E8EEFB','Escalas','Todos os setores · '+MES.label,'escala'));
+    t.push(tile('✅','#E8F5EF','Fechamento','Pendências e fechamento do mês','fech',pend||''));
+    t.push(tile('💰','#E8F5EF','Financeiro','Repasse por médico','fin'));
+    t.push(tile('⚠️','#FFF7E6','Ocorrências','Compilado do mês','ocor',ocorN||''));
+    t.push(tile('🔍','#EFE8FB','Auditoria','Registro de tudo que foi feito','aud'));
+    t.push(`</div>`);
+  }
+  else if(user.tipo==='coord'){
+    t.push(`<div class="hubsec">Coordenação · ${nomeSetores}</div><div class="hub">`);
+    t.push(tile('🕐','#E8EEFB','Agora','Quem está no hospital e quem acionar','agora'));
+    t.push(tile('📅','#E8EEFB','Escala','Montar, trocar, liberar vaga','escala'));
+    t.push(tile('✅','#E8F5EF','Fechamento','Pendências e fechamento do mês','fech',pend||''));
+    t.push(tile('💰','#E8F5EF','Financeiro','Repasse da sua equipe','fin'));
+    t.push(tile('⚠️','#FFF7E6','Ocorrências','Compilado do mês','ocor',ocorN||''));
+    t.push(tile('🔍','#EFE8FB','Auditoria','Registro de tudo que foi feito','aud'));
+    t.push(`</div>`);
+  }
+  else {
+    t.push(`<div class="hubsec">Repasse médico · ${MES.label}</div><div class="hub">`);
+    t.push(tile('💰','#E8F5EF','Financeiro','Repasse por médico e por setor','fin'));
+    t.push(tile('📈','#E8EEFB','Custos de HM','Painel por classificação','bi'));
+    t.push(tile('✅','#E8F5EF','Fechamento','Conferência do mês','fech',pend||''));
+    t.push(`</div>`);
+    t.push(`<div class="hubsec">Consulta</div><div class="hub">`);
+    t.push(tile('🕐','#E8EEFB','Agora','Quem está no hospital','agora'));
+    t.push(tile('🔍','#EFE8FB','Auditoria','Registro de tudo que foi feito','aud'));
+    t.push(`</div>`);
+  }
+  return t.join('');
+}
 function agoraView(){
   const d = todayISO();
   const list = SHIFTS.filter(s=>s.data===d);
@@ -3014,6 +3107,7 @@ function internPendentes(){ let n=0;
 }
 
 /* ---------- ícones ---------- */
+function icoHome(){return `<svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>`;}
 function icoNow(){return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;}
 function icoCal(){return `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>`;}
 function icoUser(){return `<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 5-5.5 8-5.5s6.5 1.5 8 5.5"/></svg>`;}
