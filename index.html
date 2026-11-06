@@ -179,12 +179,15 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .finsub-l:last-child{border-bottom:none}
 .finsub-l span:first-child{color:var(--mut)}
 .findet td{background:var(--ice);padding:6px 10px !important}
-:root{--srv-eme12-c:#fff3b0;--srv-eme3-c:#ffc9c2;--srv-presc-c:#cfe3ff;--srv-hosp-c:#7fa8e0}
+:root{--srv-eme12-c:#fff3b0;--srv-eme3-c:#ffc9c2;--srv-presc-c:#cfe3ff;--srv-hosp-c:#7fa8e0;--srv-uti-c:#d9ccf5;--srv-orto-c:#ffd9bd;--srv-sob-c:#b8e6cf}
 .calgrid button.srv{font-weight:700}
 .calgrid button.srv-eme12{background:var(--srv-eme12-c)}
 .calgrid button.srv-eme3{background:var(--srv-eme3-c)}
 .calgrid button.srv-presc{background:var(--srv-presc-c)}
 .calgrid button.srv-hosp{background:var(--srv-hosp-c);color:#fff}
+.calgrid button.srv-uti{background:var(--srv-uti-c)}
+.calgrid button.srv-orto{background:var(--srv-orto-c)}
+.calgrid button.srv-sob{background:var(--srv-sob-c)}
 .calgrid button.srv-multi{background:linear-gradient(135deg,var(--c1) 0 50%,var(--c2) 50% 100%)}
 .calgrid button.sel{background:var(--navy) !important;color:#fff}
 .mesnav{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:12px}
@@ -590,9 +593,13 @@ function loadEscala(){
           corrente: (`${y}-${String(m).padStart(2,'0')}`===ymAtual()) };
   if(!selDate) selDate = todayISO();   // só inicializa; não sobrescreve a navegação do usuário
 }
+function isoLocal(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function hojeISO(){ return isoLocal(new Date()); }   // sempre o dia do RELÓGIO LOCAL
 function todayISO(){
   const t = new Date();
-  if (t.getFullYear()===MES.y && t.getMonth()+1===MES.m) return t.toISOString().slice(0,10);
+  if (t.getFullYear()===MES.y && t.getMonth()+1===MES.m) return isoLocal(t);
   return `${MES.y}-${String(MES.m).padStart(2,'0')}-01`;
 }
 function st(id){ return S[id] || {}; }
@@ -1098,22 +1105,65 @@ function trocarMes(ym){ if(!ESCALAS[ym]) return; mesAtivo=ym; selSetor='TODOS'; 
 /* ---------- Meus plantões ---------- */
 function meusView(){
   const pedidos = SHIFTS.filter(s=>{const t=st(s.id).troca; return t&&t.status==='pendente'&&t.para===user.nome;});
-  const mine = SHIFTS.filter(s=>executor(s)===user.nome);
-  const today = todayISO();
-  const prox = mine.filter(s=>s.data>=today);
-  const past = mine.filter(s=>s.data<today);
-  const n = mine.length, faltas = mine.filter(s=>statusOf(s)==='falta').length;
-  return `
-    <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
-      <div class="kpi"><div class="v">${n}</div><div class="l">Plantões no mês</div></div>
-      <div class="kpi g"><div class="v">${n-faltas}</div><div class="l">A receber</div></div>
-    </div>
-    ${pedidos.length?`<h2 style="color:var(--warn)">Trocas aguardando sua confirmação</h2>${pedidos.map(card).join('')}`:''}
-    <h2>Próximos</h2>${prox.map(card).join('')||'<div class="empty">Nenhum plantão futuro.</div>'}
-    <h2>Anteriores</h2>${past.map(card).join('')||'<div class="empty">Nada por aqui ainda.</div>'}`;
-}
+  const mine  = SHIFTS.filter(s=>executor(s)===user.nome);
+  const hoje  = todayISO();
+  const blocos = agruparTurnos(mine);
+  const prox  = blocos.filter(b=>b.data>=hoje);
+  const past  = blocos.filter(b=>b.data< hoje);
+  const faltas = mine.filter(s=>statusOf(s)==='falta').length;
+  const dias24 = blocos.filter(b=>b.h24).length;
+  const meia   = blocos.filter(b=>!b.h24).length;
 
-/* ---------- card ---------- */
+  // calendário do mês com os dias do próprio médico pintados
+  const off = (new Date(MES.y, MES.m-1, 1).getDay()+6)%7;   // seg = 0
+  const fer = feriadosDe(MES.y);
+  const porDia = {};
+  blocos.forEach(b=>{ (porDia[b.data] = porDia[b.data] || []).push(b); });
+  let cal = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(w=>`<span class="wd">${w}</span>`).join('');
+  for(let i=0;i<off;i++) cal += `<span></span>`;
+  for(let i=1;i<=MES.dias;i++){
+    const iso=`${MES.y}-${String(MES.m).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+    const bs = porDia[iso]||[];
+    const cores = [...new Set(bs.map(b=>tipoServico(b).cor))];
+    let estilo='', extra='';
+    if(cores.length===1) estilo=` srv ${cores[0]}`;
+    else if(cores.length>1){ estilo=' srv srv-multi';
+      extra=` style="--c1:var(--${cores[0]}-c);--c2:var(--${cores[1]}-c)"`; }
+    const tit = bs.length
+      ? bs.map(b=>`${nomeSetor(b)} · ${rotuloBloco(b)}`).join(' | ')
+      : (fer[iso]||'');
+    cal += `<button class="${iso===hoje?'today':''}${fer[iso]?' feriado':''}${estilo}"${extra}
+      ${tit?`title="${tit}"`:''}>${i}</button>`;
+  }
+
+  const bloco = b => {
+    const falta = statusOf(b)==='falta';
+    return `<div class="card" style="padding:12px 13px;display:block${falta?';opacity:.6':''}">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+        <b style="font-size:14.5px">${fmtD(b.data)} <span style="color:var(--mut);font-weight:600">${b.dia}</span></b>
+        <span class="chip ${b.h24?'':'b-DIA'}" style="font-size:11px;font-weight:800">${b.h24?'24h':b.turno}</span>
+      </div>
+      <div style="font-size:13px;color:var(--mut);margin-top:4px;line-height:1.45">
+        ${nomeSetor(b)} · ${rotuloPapel(b)}<br>${rotuloBloco(b)}
+        ${falta?'<br><b style="color:var(--danger)">Falta registrada</b>':''}
+        ${feriadoNome(b.data)?`<br><span style="color:var(--warn)">${feriadoNome(b.data)}</span>`:''}
+      </div></div>`;
+  };
+
+  return `
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="v">${dias24}</div><div class="l">Dias de 24h</div></div>
+      <div class="kpi"><div class="v">${meia}</div><div class="l">Turnos de 12h</div></div>
+      <div class="kpi g"><div class="v">${mine.length-faltas}</div><div class="l">Plantões a receber</div></div>
+    </div>
+    <div class="mesnav"><div class="mesnav-lbl">${MES.label}</div></div>
+    <div class="calgrid">${cal}</div>
+    <p style="font-size:12px;color:var(--mut);margin:-4px 0 14px">Seus dias aparecem coloridos pela
+      cor do serviço. Toque e segure para ver o detalhe do dia.</p>
+    ${pedidos.length?`<h2 style="color:var(--warn)">Trocas aguardando sua confirmação</h2>${pedidos.map(card).join('')}`:''}
+    <h2>Próximos</h2>${prox.map(bloco).join('')||'<div class="empty">Nenhum plantão futuro.</div>'}
+    <h2>Anteriores</h2>${past.map(bloco).join('')||'<div class="empty">Nada por aqui ainda.</div>'}`;
+}
 function card(s){
   const x = st(s.id), stt = statusOf(s), [cls,lbl] = CHIP[stt];
   const exec = executor(s);
@@ -1195,6 +1245,40 @@ function card(s){
 
 /* ---------- ações ---------- */
 function sh(id){ return SHIFTS.find(x=>x.id===id); }
+const ORDEM_TURNO = {DIA:0, NOITE:1};
+function ordenarTurnos(lista){
+  return [...lista].sort((a,b)=>
+    a.data.localeCompare(b.data)
+    || ((SETORES[a.setor]||{}).ordem||9)-((SETORES[b.setor]||{}).ordem||9)
+    || (ORDEM_TURNO[a.turno]??9)-(ORDEM_TURNO[b.turno]??9)
+    || String(a.papel).localeCompare(String(b.papel),'pt-BR'));
+}
+/* Nos sobreavisos, na UTI e na Ortopedia o padrão é 24 horas: a mesma pessoa
+   cobre dia e noite. Junta os dois turnos num bloco só; quem fez meio período
+   continua aparecendo como 12h. */
+function agruparTurnos(lista){
+  const ord = ordenarTurnos(lista), usados = new Set(), out = [];
+  ord.forEach(s=>{
+    if(usados.has(s.id)) return;
+    if(s.turno==='DIA'){
+      const par = ord.find(x=>!usados.has(x.id) && x.id!==s.id && x.turno==='NOITE'
+        && x.data===s.data && x.setor===s.setor && x.papel===s.papel
+        && executor(x)===executor(s) && statusOf(x)===statusOf(s));
+      if(par){
+        usados.add(s.id); usados.add(par.id);
+        out.push({...s, h24:true, pares:[s,par], hini:'07:00', hfim:'07:00'});
+        return;
+      }
+    }
+    usados.add(s.id);
+    out.push({...s, h24:false, pares:[s]});
+  });
+  return out;
+}
+function rotuloBloco(b){
+  return b.h24 ? '24h · 07:00–07:00'
+               : `12h · ${b.hini}–${b.hfim}`;
+}
 function dataPassada(iso){ const h=new Date(); h.setHours(0,0,0,0); return new Date(iso+'T00:00:00') < h; }
 function markFalta(id){ log('Falta registrada', descS(sh(id))); save(id,{status:'Falta'}); toast('Falta registrada — plantão não contará no financeiro.'); }
 function desmarcarFalta(id){ log('Falta desfeita (volta a realizado)', descS(sh(id))); save(id,{status:''}); toast('Falta desfeita — plantão volta a contar.'); }
@@ -1244,7 +1328,7 @@ function confirmaTroca(){
     closeOv(); save(trocaId,{executor:sub, troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'aceita', aceitaTs:agora, aceitoPor:autor(), vista:true}, obs});
     toast('Troca registrada para '+sub+'.');
     // Oferece criar uma regra de repetição a partir deste plantão (só datas futuras)
-    const hojeISO=new Date().toISOString().slice(0,10);
+    const hojeISO=hojeISO();
     if(eraVaga && user.tipo==='coord' && s.data>=hojeISO){
       setTimeout(()=>{
         if(confirm(`${sub} foi definido(a) para ${fmtD(s.data)}.\n\nEsse plantão vai se repetir? (ex.: toda semana no mesmo dia)\n\nOK = criar uma regra de repetição · Cancelar = foi só desta vez.`)){
@@ -1999,7 +2083,7 @@ function encerrarRegra(id){
 let _regraBase=null;
 function openNovaRegra(base){
   _regraBase = base || null;
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=hojeISO();
   const dowBase = base ? new Date(base.data+'T12:00:00').getDay() : new Date().getDay();
   const dows=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const ov=document.getElementById('ov');
@@ -2059,7 +2143,7 @@ function salvarNovaRegra(){
   const inicio=document.getElementById('rgIni').value;
   const temFim=document.getElementById('rgTemFim').value==='sim';
   const fim=temFim?document.getElementById('rgFim').value:null;
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=hojeISO();
   if(!medico){ err.textContent='Escolha o médico.'; err.style.display='block'; return; }
   if(!inicio){ err.textContent='Informe a data de início.'; err.style.display='block'; return; }
   if(inicio<hoje){ err.textContent='A regra só pode valer para datas futuras. Escolha uma data a partir de hoje.'; err.style.display='block'; return; }
@@ -2083,7 +2167,7 @@ function salvarNovaRegra(){
 // Aplica a regra APENAS a datas futuras e SOMENTE em postos ainda em aberto (A DEFINIR).
 // Nunca altera plantão já atribuído nem registro anterior.
 function aplicarRegraFuturo(r){
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=hojeISO();
   let n=0; const mesesTocados=new Set();
   Object.keys(ESCALAS).forEach(ym=>{
     const e=ESCALAS[ym]; if(!e||!e.shifts) return;
@@ -2583,7 +2667,7 @@ function getValores(iso){
   base.especiais = {...VALORES_PADRAO.especiais, ...(cfg.especiais||{})};
   const hist = (cfg.historico||[]).slice().sort((a,b)=>String(a.desde).localeCompare(String(b.desde)));
   if(!hist.length) return base;
-  const ref = iso || new Date().toISOString().slice(0,10);
+  const ref = iso || hojeISO();
   let v = {...base};
   hist.forEach(h=>{
     if(String(h.desde) <= ref){
@@ -2647,10 +2731,11 @@ function demonstrativo(nome){
     totalPlant+=v; totalBonus+=bonus;
     if(oculto) ocultoVal+=v;
     const ts=tipoServico(s);
-    linhas.push({data:s.data, dia:s.dia, setor:s.setor, papel:s.papel, valor:v, oculto,
-                 biUI, biUTI, bonus, srvChave:ts.chave, srvRot:ts.rot});
+    linhas.push({data:s.data, dia:s.dia, setor:s.setor, papel:s.papel, turno:s.turno,
+                 valor:v, oculto, biUI, biUTI, bonus, srvChave:ts.chave, srvRot:ts.rot});
   });
-  linhas.sort((a,b)=>a.data.localeCompare(b.data));
+  linhas.sort((a,b)=>a.data.localeCompare(b.data)
+    || (ORDEM_TURNO[a.turno]??9)-(ORDEM_TURNO[b.turno]??9));
   // agrega por tipo de serviço
   const porServico={};
   linhas.forEach(l=>{
@@ -2773,7 +2858,7 @@ const CAMPOS_VALOR = [['plant_semana','Plantonista 1 e 2 — dia de semana'],['p
        ['prescritor_semana','Prescritor (UNI) — dia de semana'],['prescritor_fds','Prescritor (UNI) — fim de semana'],
        ['bonus_ui','Bônus internação UI'],['bonus_uti','Bônus internação UTI']];
 function openValores(){
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=hojeISO();
   const V=getValores();
   const hist=historicoValores();
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
