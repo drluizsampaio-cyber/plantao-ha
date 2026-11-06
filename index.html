@@ -649,7 +649,7 @@ function render(){
     : user.tipo==='coord'
     ? [['hub','Início',icoHome()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()],['fin','Financeiro',icoCash()]]
     : [['hub','Início',icoHome()],['fin','Financeiro',icoCash()],['bi','Custos',icoCash()],['fech','Fechamento',icoDoc()]];
-  if (!tabs.some(t=>t[0]===tab)) tab=tabs[0][0];
+  if (!telasPermitidas().includes(tab)) tab='hub';
   const quem = user.diretor?'Direção Médica · '+user.nome
              : user.secretaria?'Secretaria · sobreaviso de Cirurgia Geral'
              : user.tipo==='coord'?'Coordenação Médica'
@@ -876,6 +876,16 @@ async function salvarMinhaSenha(){
 
 /* ---------- Agora ---------- */
 /* Coordenação e direção também pegam plantão. Só mostra o card quando há. */
+/* Telas que cada perfil pode abrir. É mais amplo que o rodapé:
+   o rodapé mostra só o uso diário, os cards da tela inicial levam ao resto. */
+function telasPermitidas(){
+  if(!user) return ['hub'];
+  if(user.secretaria)     return ['hub','escala'];
+  if(user.tipo==='med')   return ['hub','agora','escala','meus','ocor','fin'];
+  if(user.diretor)        return ['hub','agora','escala','meus','ocor','fech','fin','bi','regras','aud'];
+  if(user.tipo==='coord') return ['hub','agora','escala','meus','ocor','fech','fin','aud'];
+  return ['hub','agora','escala','fech','fin','bi','aud'];   // administrativo
+}
 function temPlantaoProprio(){
   return !!(user && user.nome && SHIFTS.some(s=>executor(s)===user.nome));
 }
