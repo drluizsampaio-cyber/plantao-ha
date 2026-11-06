@@ -275,6 +275,9 @@ nav button.on::after{content:"";width:18px;height:3px;border-radius:2px;backgrou
 .sheet select,.sheet input{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;margin-bottom:12px;background:var(--paper)}
 .sheet .row{display:flex;gap:10px}
 .sheet .row .btn{flex:1;padding:13px;font-size:15px}
+/* escolha de turno: botões empilhados, um por linha */
+.sheet .col{display:flex;flex-direction:column;gap:9px}
+.sheet .col .btn{width:100%;padding:13px;font-size:15px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:78px;background:var(--navy);color:#fff;font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:99px;z-index:60;box-shadow:0 6px 20px rgba(18,32,95,.35);opacity:0;transition:opacity .25s}
 .toast.show{opacity:1}
 
@@ -1403,9 +1406,14 @@ function agruparTurnos(lista){
   ord.forEach(s=>{
     if(usados.has(s.id)) return;
     if(s.turno==='DIA'){
+      // Os dois turnos só viram um bloco de 24h enquanto forem iguais em tudo:
+      // mesmo executor, mesmo status e mesma situação de troca. Pedida a troca
+      // de apenas 12h, o bloco se separa sozinho e cada metade mostra o que é seu.
+      const trc = y => { const t=st(y.id).troca; return t ? t.status+'|'+t.para : ''; };
       const par = ord.find(x=>!usados.has(x.id) && x.id!==s.id && x.turno==='NOITE'
         && x.data===s.data && x.setor===s.setor && x.papel===s.papel
-        && executor(x)===executor(s) && statusOf(x)===statusOf(s));
+        && executor(x)===executor(s) && statusOf(x)===statusOf(s)
+        && trc(x)===trc(s));
       if(par){
         usados.add(s.id); usados.add(par.id);
         out.push({...s, h24:true, pares:[s,par], hini:'07:00', hfim:'07:00'});
@@ -1423,20 +1431,67 @@ function rotuloBloco(b){
 }
 function dataPassada(iso){ const h=new Date(); h.setHours(0,0,0,0); return new Date(iso+'T00:00:00') < h; }
 const listaIds = ids => String(ids).split(',').filter(Boolean);
+/* Um plantão de 24h são dois turnos de 12h, e 12h é a menor unidade: não se
+   divide mais que isso. Quando a ação cai sobre um bloco de 24h, o app pergunta
+   antes se vale para o dia, para a noite ou para os dois. */
+let _turnoCb=null, _turnoIds=[];
+function rotuloTurno(x){
+  return (x.turno==='NOITE' ? 'Só a noite' : 'Só o dia') + ' · ' + x.hini + '–' + x.hfim + ' (12h)';
+}
+function escolherTurno(ids, titulo, acao){
+  const L=listaIds(ids);
+  if(L.length<2){ acao(L); return; }
+  const p=L.map(i=>sh(i)).filter(Boolean);
+  if(p.length<2){ acao(L); return; }
+  _turnoCb=acao; _turnoIds=L;
+  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  ov.innerHTML=`<div class="sheet">
+    <h3>${titulo}</h3>
+    <p>${fmtD(p[0].data)} · ${nomeSetor(p[0])} · ${rotuloPapel(p[0])} · <b>24h</b> ·
+    ${executor(p[0])}<br>São dois turnos de 12h. Escolha o que esta ação vale.</p>
+    <div class="col">
+      <button class="btn pri" onclick="aplicarTurno('todos')">As 24h · os dois turnos</button>
+      ${p.map(x=>`<button class="btn" onclick="aplicarTurno('${x.id}')">${rotuloTurno(x)}</button>`).join('')}
+      <button class="btn" onclick="closeOv()">Cancelar</button>
+    </div></div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
+  document.body.appendChild(ov);
+}
+function aplicarTurno(qual){
+  const L = qual==='todos' ? _turnoIds : _turnoIds.filter(i=>i===qual);
+  const cb=_turnoCb; _turnoCb=null; _turnoIds=[];
+  const o=document.getElementById('ov'); if(o) o.remove();
+  if(cb && L.length) cb(L);
+}
+/* texto para o registro: 24h, ou qual das metades */
+function marcaPeriodo(L, todos){
+  if(L.length>1) return ' · 24h (os dois turnos)';
+  if(todos && todos.length>1){
+    const x=sh(L[0]);
+    return ' · só o turno ' + (x && x.turno==='NOITE' ? 'da noite' : 'do dia') + ' (12h)';
+  }
+  return '';
+}
 function markFalta(ids){
-  const L=listaIds(ids); if(!L.length) return;
-  if(!edito(sh(L[0]))){ toast('Esta escala é de outra coordenação.'); return; }
-  log('Falta registrada'+(L.length>1?' · 24h (os dois turnos)':''), descS(sh(L[0])));
-  L.forEach(id=>save(id,{status:'Falta'}));
-  toast(L.length>1 ? 'Falta registrada nos dois turnos — não contará no financeiro.'
-                   : 'Falta registrada — plantão não contará no financeiro.');
+  const T=listaIds(ids); if(!T.length) return;
+  if(!edito(sh(T[0]))){ toast('Esta escala é de outra coordenação.'); return; }
+  escolherTurno(ids, 'Marcar falta', L=>{
+    if(!edito(sh(L[0]))) return;
+    log('Falta registrada'+marcaPeriodo(L,T), descS(sh(L[0])));
+    L.forEach(id=>save(id,{status:'Falta'}));
+    toast(L.length>1 ? 'Falta registrada nos dois turnos — não contará no financeiro.'
+                     : 'Falta registrada em 12h — esse turno não contará no financeiro.');
+  });
 }
 function desmarcarFalta(ids){
-  const L=listaIds(ids); if(!L.length) return;
-  if(!edito(sh(L[0]))){ toast('Esta escala é de outra coordenação.'); return; }
-  log('Falta desfeita (volta a realizado)'+(L.length>1?' · 24h (os dois turnos)':''), descS(sh(L[0])));
-  L.forEach(id=>save(id,{status:''}));
-  toast('Falta desfeita — plantão volta a contar.');
+  const T=listaIds(ids); if(!T.length) return;
+  if(!edito(sh(T[0]))){ toast('Esta escala é de outra coordenação.'); return; }
+  escolherTurno(ids, 'Desfazer falta', L=>{
+    if(!edito(sh(L[0]))) return;
+    log('Falta desfeita (volta a realizado)'+marcaPeriodo(L,T), descS(sh(L[0])));
+    L.forEach(id=>save(id,{status:''}));
+    toast('Falta desfeita — plantão volta a contar.');
+  });
 }
 
 let trocaId=null;
@@ -1458,8 +1513,25 @@ function openTroca(ids){
   const ov = document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML = `<div class="sheet">
     <h3>${s.medico==='A DEFINIR'?'Definir plantonista':(user.tipo==='med'?'Solicitar troca de plantão':'Registrar troca')}</h3>
-    <p>${fmtD(s.data)} · ${nomeSetor(s)} · ${rotuloPapel(s)} · ${L.length>1?'<b>24h · os dois turnos</b>':s.hini+'–'+s.hfim}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
-    <select id="sub">${escalaveis().filter(m=>m!==executor(s)).map(m=>`<option>${m}</option>`).join('')}</select>
+    <p>${fmtD(s.data)} · ${nomeSetor(s)} · ${rotuloPapel(s)} · ${L.length>1?'<b>24h</b>':s.hini+'–'+s.hfim}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
+    ${L.length>1?`<label style="font-size:12px;font-weight:700;color:var(--mut)">${
+      user.tipo==='med'?'O que você quer passar':'Período'}</label>
+    <select id="parte">
+      <option value="todos">As 24h — os dois turnos</option>
+      ${L.map(i=>sh(i)).filter(Boolean).map(x=>
+        `<option value="${x.id}">${rotuloTurno(x)}</option>`).join('')}
+    </select>`:''}
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">${
+      s.medico==='A DEFINIR'?'Quem assume':'Para quem'}</label>
+    ${(()=>{ // equipe do próprio setor primeiro: evita passar plantão da UTI para ortopedista
+      const eq=escalaveisDoSetor(s.setor), fora=x=>x!==executor(s);
+      const dele=eq.doSetor.filter(fora), resto=eq.outros.filter(fora);
+      return `<select id="sub">
+        ${dele.length?`<optgroup label="Equipe de ${nomeSetor(s)}">${
+          dele.map(m=>`<option>${m}</option>`).join('')}</optgroup>`:''}
+        ${resto.length?`<optgroup label="Demais cadastrados">${
+          resto.map(m=>`<option>${m}</option>`).join('')}</optgroup>`:''}
+      </select>`; })()}
     <input id="obs" placeholder="Motivo / observação (opcional)">
     <div class="row">
       <button class="btn" onclick="closeOv()">Cancelar</button>
@@ -1471,15 +1543,19 @@ function openTroca(ids){
 function closeOv(){ const o=document.getElementById('ov'); if(o) o.remove(); if(user) render(); }
 function confirmaTroca(){
   const sub=document.getElementById('sub').value, obs=document.getElementById('obs').value;
-  const L=listaIds(trocaId);
+  const T=listaIds(trocaId);
+  const sel=document.getElementById('parte');
+  const L=(sel && sel.value && sel.value!=='todos') ? T.filter(i=>i===sel.value) : T;
+  if(!L.length) return;
   const s=sh(L[0]);
   const agora=new Date().toLocaleString('pt-BR');
-  const marca = L.length>1 ? ' · 24h (os dois turnos)' : '';
+  const marca = marcaPeriodo(L, T);
   if (s.medico!=='A DEFINIR' && user.tipo==='med'){
     log('Troca solicitada → '+sub+marca+(obs?' · motivo: '+obs:''), descS(s));
     closeOv();
     L.forEach(i2=>save(i2,{troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'pendente'}, obs}));
-    toast('Solicitação enviada — aguardando aceite de '+sub+'.');
+    toast((L.length<T.length ? 'Solicitação do turno '+(s.turno==='NOITE'?'da noite':'do dia')
+                             : 'Solicitação')+' enviada — aguardando aceite de '+sub+'.');
   } else {
     const eraVaga = (s.medico==='A DEFINIR');
     log((eraVaga?'Plantonista definido':'Troca registrada pela coordenação')+' → '+sub+marca+(obs?' · motivo: '+obs:''), descS(s));
@@ -2664,7 +2740,12 @@ function salvarEscalaMes(ym){
 // Libera a vaga: tira o nome do médico e devolve o posto como "A DEFINIR".
 // Usado quando o médico fica indisponível e a vaga precisa voltar a ficar aberta.
 function liberarVaga(ids){
-  const L=listaIds(ids); const id=L[0];
+  const T=listaIds(ids); if(!T.length) return;
+  if(!edito(sh(T[0]))){ toast('Esta escala é de outra coordenação.'); return; }
+  escolherTurno(ids, 'Liberar vaga', L=>liberarVagaIds(L, T));
+}
+function liberarVagaIds(L, T){
+  const id=L[0];
   const s=sh(id); if(!s) return;
   if(!edito(s)){ toast('Esta escala é de outra coordenação.'); return; }
   const x=st(id);
@@ -2673,7 +2754,8 @@ function liberarVaga(ids){
   }
   const quem=executor(s);
   if(quem==='A DEFINIR'){ toast('Esta vaga já está em aberto.'); return; }
-  const periodo = L.length>1 ? '24h (os dois turnos)' : s.turno;
+  const periodo = L.length>1 ? '24h (os dois turnos)'
+                : (T && T.length>1 ? s.turno+' · 12h de um plantão de 24h' : s.turno);
   const motivo=(prompt(`Liberar esta vaga?\n\n${fmtD(s.data)} · ${rotuloPapel(s)} · ${periodo}\nOcupante atual: ${quem}\n\nO nome sai da escala e a vaga fica disponível para outro médico.\n\nMotivo:`, 'Indisponibilidade do médico')||'').trim();
   if(!motivo) return;
   const ym=s.data.slice(0,7);
