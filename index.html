@@ -213,9 +213,11 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .calgrid button.alerta::after{content:"";position:absolute;top:3px;right:4px;width:8px;height:8px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px var(--paper);animation:pisca 1s steps(2,start) infinite}
 @keyframes pisca{to{visibility:hidden}}
 .blink{animation:pisca 1s steps(2,start) infinite}
-.filters{display:flex;gap:8px;margin-bottom:8px}
-.seg{flex:1;display:flex;background:var(--paper);border:1.5px solid var(--line);border-radius:10px;overflow:hidden}
-.seg button{flex:1;padding:9px 0;font-size:13px;font-weight:700;color:var(--mut)}
+.filters{display:flex;gap:8px;margin-bottom:8px;min-width:0}
+.seg{flex:1;display:flex;background:var(--paper);border:1.5px solid var(--line);border-radius:10px;
+  overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.seg::-webkit-scrollbar{display:none}
+.seg button{flex:0 0 auto;padding:9px 13px;font-size:13px;font-weight:700;color:var(--mut);white-space:nowrap}
 .seg button.on{background:var(--navy);color:#fff}
 
 /* ---------- agora ---------- */
@@ -233,6 +235,11 @@ td.n{text-align:center;font-family:'IBM Plex Mono',monospace}
 tr:nth-child(even) td{background:#F7F9FD}
 .tools{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
 .tools .btn{flex:1 1 150px}
+/* caixa de impressão da grade, na aba Escala */
+.imprbox{border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:0 0 10px;background:#fff}
+.imprbox .tools{gap:6px;margin:0}
+.imprbox .btn{flex:0 1 auto;padding:6px 11px;font-size:12.5px}
+.imprtit{font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin:0 0 6px}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
 .kpi{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
 .kpi .v{font-size:22px;font-weight:800;color:var(--navy)}
@@ -302,7 +309,7 @@ nav button.on::after{content:"";width:18px;height:3px;border-radius:2px;backgrou
   #printArea.onepage .pi{font-size:10.5px}
   #printArea.onepage .pgbreak{page-break-before:always;margin-top:6px}
   /* grade de setor, no modelo que a coordenação da UTI distribui */
-  #printArea.grade{font-family:inherit}
+#printArea.grade{font-family:inherit}
   #printArea.grade h1{font-size:19px;text-align:center;background:#4A7EBB;color:#fff;
     padding:9px;margin:0 0 7px;border-radius:3px}
   #printArea.grade table.g{table-layout:fixed;width:100%;border-collapse:collapse}
@@ -471,10 +478,15 @@ const SETORES = {
             fds:'Cirurgia Geral · sobreaviso (fim de semana)',
             feriado:'Cirurgia Geral · sobreaviso (feriado)'}}
     ]},
+  /* Urologia: escala automática. A regra é sempre a mesma — sobreaviso de dia útil,
+     07h às 19h, por dia da semana — então o app já gera o mês preenchido e ninguém
+     precisa alimentar. Fora do horário a equipe atende por telefone. */
   URO:{nome:'Urologia', sigla:'URO', natureza:'sobreaviso', ordem:6, cor:'srv-sob',
-    rateioMensal:'uro_mensal',
+    rateioMensal:'uro_mensal', autoEscala:true,
+    notaEscala:'Dias úteis, 07h às 19h. Fora do horário, a equipe atende por telefone para tirar dúvida ou avaliar viabilidade.',
     postos:[
       {papel:'Sobreaviso', turnos:['DIA'], soUteis:true, semFeriado:true, rateioDiaUtil:'uro_mensal',
+       fixoDow:{1:'Hugo Novaes', 2:'Davi Salomão', 3:'Davi Salomão', 4:'Davi Salomão', 5:'André Torres'},
        srv:{unico:'uro_sob'}, rot:{unico:'Urologia · sobreaviso (dia útil)'}}
     ]},
   NEU:{nome:'Neurocirurgia', sigla:'NEU', natureza:'informativo', ordem:7, cor:'srv-sob',
@@ -507,6 +519,17 @@ let COORD_EXTRA = [];    // nomes de coordenadores que também podem ser escalad
 let FECH = {};           // { 'AAAA-MM': {parcial:{por,ts,iso}, final:{por,ts,iso}} }
 let REGRAS = [];         // regras de repetição de escala (fixas)
 let ELENCO = [];         // TODOS os usuários cadastrados (med + coord) — podem ser escalados mesmo sem plantão no mês
+/* Para escolher médico num posto de um setor: primeiro quem já atua naquele
+   setor no mês, depois o resto do elenco. Evita escalar ortopedista na UTI
+   por um clique errado na lista. */
+function escalaveisDoSetor(sg){
+  const todos = escalaveis();
+  // quem está na escala do setor entra sempre, mesmo que ainda não tenha login
+  const doSetor = [...new Set(SHIFTS.filter(x=>x.setor===sg).map(x=>executor(x)))]
+    .filter(x=>x && x!=='A DEFINIR')
+    .sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  return {doSetor, outros: todos.filter(x=>!doSetor.includes(x))};
+}
 function escalaveis(){   // nomes disponíveis para troca/definição de plantão
   // MEDICOS = quem está na escala do mês; ELENCO = todos os cadastrados (mesmo sem plantão no mês);
   // COORD_EXTRA = coordenador logado. Assim qualquer usuário med pode cobrir vaga ou receber troca.
@@ -959,7 +982,7 @@ function hubView(){
     t.push(`</div>`);
     t.push(`<div class="hubsec">Operação</div><div class="hub">`);
     t.push(tile('🕐','#E8EEFB','Agora','Quem está no hospital e quem acionar','agora'));
-    t.push(tile('📅','#E8EEFB','Escalas','Todos os setores · '+MES.label,'escala'));
+    t.push(tile('📅','#E8EEFB','Escalas','Acompanhar e imprimir · '+MES.label,'escala'));
     t.push(tile('✅','#E8F5EF','Fechamento','Pendências e fechamento do mês','fech',pend||''));
     t.push(tile('💰','#E8F5EF','Financeiro','Repasse por médico','fin'));
     t.push(tile('⚠️','#FFF7E6','Ocorrências','Compilado do mês','ocor',ocorN||''));
@@ -1095,7 +1118,7 @@ function escalaView(){
   }}); }
   let cal = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(w=>`<span class="wd">${w}</span>`).join('');
   for(let i=0;i<off;i++) cal += `<span></span>`;
-  const alerta = user.tipo==='coord' ? trocasNaoVistas() : new Set();
+  const alerta = (user.tipo==='coord'||user.secretaria) ? trocasNaoVistas() : new Set();
   const alertaOco = user.tipo==='coord' ? ocorrenciasNaoVistas() : new Set();
   for(let i=1;i<=MES.dias;i++){
     const iso=`${MES.y}-${String(MES.m).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
@@ -1114,26 +1137,46 @@ function escalaView(){
   if (selSetor!=='TODOS') list=list.filter(s=>s.setor===selSetor);
   const selLabel = new Date(selDate+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long'});
   const ferNome = feriadoNome(selDate);
-  const barraCoord = user.tipo==='coord' ? `
+  // Configurar escala: só quem sobe a escala, e o botão sempre diz de qual setor.
+  const sgsEd = setoresQueEdito();
+  const nRg = REGRAS.filter(r=>r.ativa && sgsEd.includes(r.setor)).length;
+  const barraCoord = sgsEd.length ? `
     <div class="tools">
       <button class="btn pri" onclick="openGerar()">Gerar escala de mês futuro</button>
-      <button class="btn" onclick="openRegras()">Configurar Regras de Escala${(()=>{const a=meusSetores();const n=REGRAS.filter(r=>r.ativa&&a.includes(r.setor)).length;return n?` (${n})`:'';})()}</button>
-      <button class="btn" onclick="openFeriados()">3º plantonista nos feriados</button>
+      <button class="btn" onclick="openRegras()">Regras de escala · ${nomesSetores(sgsEd)}${nRg?` (${nRg})`:''}</button>
+      ${sgsEd.includes('EME')?`<button class="btn" onclick="openFeriados()">3º plantonista nos feriados</button>`:''}
     </div>` : '';
-  const faixaRasc = (MES.rascunho && user.tipo==='coord') ? `
+  // Direção e administrativo: a ação aqui é imprimir a grade de cada setor.
+  const sgsImp = podeImprimirGrade() ? meusSetores() : [];
+  const barraImp = sgsImp.length ? `
+    <div class="imprbox">
+      <div class="imprtit">Imprimir a grade do mês</div>
+      <div class="tools" style="margin:0">
+        ${sgsImp.map(sg=>`<button class="btn" onclick="printSetor('${sg}')">${(SETORES[sg]||{}).nome||sg}</button>`).join('')}
+      </div>
+    </div>` : '';
+  const aviso = semSetorDefinido() ? `
+    <div class="semterceiro">Seu cadastro não tem setor definido, por isso você está
+    vendo e editando <b>todos os setores</b>. Peça à direção para definir o seu setor.</div>` : '';
+  const faixaRasc = !MES.rascunho ? '' : (sgsEd.length ? `
     <div class="rascbar">
       <div><b>RASCUNHO</b> — esta escala ainda não está visível para a equipe.
       ${SHIFTS.filter(s=>s.medico==='A DEFINIR').length} posto(s) em aberto.</div>
       <button class="btn ok" onclick="publicarEscala()">Publicar para a equipe</button>
-    </div>` : '';
-  const faixaPub = (!MES.rascunho && user.tipo==='coord' && MES.ym>ymAtual()) ? `
+    </div>` : `
+    <div class="rascbar">
+      <div><b>RASCUNHO</b> — esta escala ainda não foi publicada para a equipe.
+      ${SHIFTS.filter(s=>s.medico==='A DEFINIR').length} posto(s) em aberto.
+      Quem publica é a coordenação do setor.</div>
+    </div>`);
+  const faixaPub = (!MES.rascunho && sgsEd.length && MES.ym>ymAtual()) ? `
     <div style="text-align:center;margin:-2px 0 10px"><button class="btn" style="padding:5px 12px;font-size:12px" onclick="voltarRascunho()">Voltar esta escala para rascunho</button></div>` : '';
   return `
     ${seletor}
-    ${faixaRasc}${faixaPub}${barraCoord}
+    ${aviso}${faixaRasc}${faixaPub}${barraCoord}${barraImp}
     <div class="calgrid">${cal}</div>
     <h2 style="margin-top:4px">${cap(selLabel)}${ferNome?` <span style="color:var(--danger);font-size:12px;font-weight:700">· ${ferNome}</span>`:''}</h2>
-    ${(()=>{ const r=semTerceiroNoDia(selDate); return r?`<div class="semterceiro">Sem 3º plantonista nesta data — ${r.motivo}${user.tipo==='coord'?` <button class="btn ok" style="padding:3px 10px;font-size:12px;margin-left:6px" onclick="reabrirTerceiro('${selDate}')">Liberar vaga</button>`:''}</div>`:''; })()}
+    ${(()=>{ const r=semTerceiroNoDia(selDate); return r?`<div class="semterceiro">Sem 3º plantonista nesta data — ${r.motivo}${editoEscala('EME')?` <button class="btn ok" style="padding:3px 10px;font-size:12px;margin-left:6px" onclick="reabrirTerceiro('${selDate}')">Liberar vaga</button>`:''}</div>`:''; })()}
     <div class="filters"><div class="seg">
       ${(()=>{const sgs=meusSetores();
         const opts = sgs.length>1 ? ['TODOS',...sgs] : sgs;
@@ -1223,7 +1266,7 @@ function card(s, bloco){
   const tr = x.troca;
   const trocado = exec!==s.medico;
   const isMine = user.tipo==='med' && exec===user.nome;
-  const canAct = isMine || user.tipo==='coord';
+  const souEditor = edito(s);          // quem sobe a escala deste setor
   let acts='';
   // fluxo de aceite da troca
   if (tr && tr.status==='pendente'){
@@ -1231,18 +1274,18 @@ function card(s, bloco){
       acts += `<button class="btn ok" onclick="aceitarTroca('${s.id}')">Aceitar troca</button>
                <button class="btn dan" onclick="recusarTroca('${s.id}')">Recusar</button>`;
     }
-    if ((user.tipo==='med' && s.medico===user.nome) || user.tipo==='coord'){
+    if ((user.tipo==='med' && s.medico===user.nome) || souEditor){
       acts += `<button class="btn" onclick="cancelarTroca('${s.id}')">Cancelar solicitação</button>`;
     }
   }
-  if (user.tipo==='coord' && tr && tr.status==='aceita' && !tr.vista){
+  if (souEditor && tr && tr.status==='aceita' && !tr.vista){
     acts += `<button class="btn pri blink" onclick="cienteTroca('${s.id}')">Troca confirmada — marcar como vista</button>`;
   }
   // Médico: pode passar plantão (troca). Coordenação: registrar troca + marcar/desmarcar falta.
   if (stt!=='def'){   // vale também para vagas já preenchidas pela coordenação
     if (user.tipo==='med' && isMine && !dataPassada(s.data))
       acts += `<button class="btn warn" onclick="openTroca('${ids}')">Passar plantão</button>`;
-    if (user.tipo==='coord'){
+    if (souEditor){
       acts += `<button class="btn warn" onclick="openTroca('${ids}')">Registrar troca</button>`;
       acts += `<button class="btn" onclick="liberarVaga('${ids}')">Liberar vaga</button>`;
       acts += (stt==='falta')
@@ -1253,15 +1296,15 @@ function card(s, bloco){
   // Internações: SOMENTE Plantonista 1 e 2 da Emergência
   const _pi=postoDe(s); const podeIntern = !!(_pi && _pi.intern);
   const K = x.intern || [];
-  if (podeIntern && stt!=='def' && (isMine || user.tipo==='coord' || user.tipo==='adm')){
+  if (podeIntern && stt!=='def' && (isMine || user.tipo==='coord' || user.tipo==='adm' || user.diretor)){
     acts += `<button class="btn" onclick="openIntern('${s.id}')">Internações${K.length?` (${K.length})`:''}</button>`;
   }
   // Definir plantonista: SÓ enquanto a vaga estiver realmente em aberto
-  if (stt==='def' && user.tipo==='coord'){
+  if (stt==='def' && souEditor){
     acts += `<button class="btn pri" onclick="openTroca('${ids}')">Definir plantonista</button>`;
   }
   // Remover posto da escala (coordenação): p/ feriado sem 3º plantonista, por exemplo
-  if (user.tipo==='coord' && (stt==='def' || ehTerceiro(s))){
+  if (souEditor && (stt==='def' || ehTerceiro(s))){
     acts += `<button class="btn dan" onclick="removerPosto('${s.id}')">Remover posto</button>`;
   }
   // Ocorrências: qualquer plantão (exceto A DEFINIR). Todos visualizam; registra o médico do plantão ou a coord.
@@ -1338,6 +1381,7 @@ function dataPassada(iso){ const h=new Date(); h.setHours(0,0,0,0); return new D
 const listaIds = ids => String(ids).split(',').filter(Boolean);
 function markFalta(ids){
   const L=listaIds(ids); if(!L.length) return;
+  if(!edito(sh(L[0]))){ toast('Esta escala é de outra coordenação.'); return; }
   log('Falta registrada'+(L.length>1?' · 24h (os dois turnos)':''), descS(sh(L[0])));
   L.forEach(id=>save(id,{status:'Falta'}));
   toast(L.length>1 ? 'Falta registrada nos dois turnos — não contará no financeiro.'
@@ -1345,6 +1389,7 @@ function markFalta(ids){
 }
 function desmarcarFalta(ids){
   const L=listaIds(ids); if(!L.length) return;
+  if(!edito(sh(L[0]))){ toast('Esta escala é de outra coordenação.'); return; }
   log('Falta desfeita (volta a realizado)'+(L.length>1?' · 24h (os dois turnos)':''), descS(sh(L[0])));
   L.forEach(id=>save(id,{status:''}));
   toast('Falta desfeita — plantão volta a contar.');
@@ -1650,9 +1695,12 @@ function painelAuditoriaAmostra(){
 }
 
 /* ====== PENDÊNCIAS (ir direto ao item) ====== */
+/* Pendências só dos setores que a pessoa enxerga: a coordenação da UTI não
+   deve carregar vaga em aberto da Emergência. */
 function pendencias(){
   const internAg=[], trocasNV=[], defs=[];
-  SHIFTS.forEach(s=>{
+  const alc = meusSetores();
+  SHIFTS.filter(s=>alc.includes(s.setor)).forEach(s=>{
     const x=st(s.id);
     if(user.tipo==='coord' && (x.intern||[]).length && !auditoriaFinalizada(s.data.slice(0,7))) internAg.push(s);
     if(x.troca && x.troca.status==='aceita' && !x.troca.vista) trocasNV.push(s);
@@ -1690,7 +1738,8 @@ function fechSetor(sg, ym){
 function setoresQueFecho(){
   if(!user) return [];
   if(user.tipo==='adm') return [];            // administrativo confere, não fecha
-  return meusSetores();
+  // Urologia é escala automática de valor fixo: não depende de confirmação mensal.
+  return meusSetores().filter(sg=>!(SETORES[sg]||{}).autoEscala);
 }
 function podeFechar(){ return setoresQueFecho().length>0; }
 /* Estado consolidado dos setores que a pessoa fecha */
@@ -1819,19 +1868,25 @@ function painelFechamento(){
       ${e.algumFinal?`<button class="btn" onclick="reabrirFech('final')">Reabrir para pagamento</button>`:''}
     </div>` : '';
 
-  // Quadro de todos os setores: é o que diz ao administrativo quando pedir as notas
-  const todos = setoresDeEscala();
+  // Quadro de todos os setores: é o que diz ao administrativo quando pedir as notas.
+  // A Urologia aparece como automática e não entra na contagem: escala fixa, valor
+  // mensal fechado, ninguém alimenta e ninguém precisa confirmar.
+  const todos = setoresDeEscala().filter(sg=>!(SETORES[sg]||{}).autoEscala);
+  const autos = setoresDeEscala().filter(sg=>(SETORES[sg]||{}).autoEscala);
   const linha = sg => { const x=fechSetor(sg);
     const [txt,c] = x.final ? ['fechado para pagamento','var(--ok)']
                   : x.parcial ? ['em conferência','var(--royal)']
                   : ['em aberto','var(--mut)'];
     return `<div class="rg-li"><span>${(SETORES[sg]||{}).nome||sg}</span>
       <span style="color:${c};font-weight:700">${txt}</span></div>`; };
+  const linhaAuto = sg => `<div class="rg-li"><span>${(SETORES[sg]||{}).nome||sg}</span>
+      <span style="color:var(--mut);font-weight:700">automática · valor fixo mensal</span></div>`;
   const prontos = todos.filter(sg=>fechSetor(sg).final).length;
   const quadro = vejoTudo ? `
     <div class="altbox" style="margin-top:10px">
       <div class="pendtit">Situação por setor — ${prontos} de ${todos.length} fechados</div>
       ${todos.map(linha).join('')}
+      ${autos.map(linhaAuto).join('')}
       <div class="fechdica" style="margin-top:8px">${
         prontos===todos.length
           ? '<b style="color:var(--ok)">Todos os setores fecharam.</b> Pode solicitar as notas fiscais.'
@@ -1881,7 +1936,7 @@ function fechView(){
     <div class="pendbox">
       <div class="pendtit">Pendências${totPend?' — toque para ir direto ao item':' — nada pendente ✓'}</div>
       <div class="pendgrid">
-        ${user.tipo==='coord'?chip(p.internAg.length,'Internações a auditar','intern'):''}
+        ${(user.tipo==='coord'&&!user.secretaria)?chip(p.internAg.length,'Internações a auditar','intern'):''}
         ${chip(p.trocasNV.length,'Trocas a conferir','troca')}
         ${chip(p.defs.length,'Vagas a definir','def')}
         ${verOcor?chip(p.ocor,'Ocorrências a ver','ocor'):''}
@@ -1891,10 +1946,14 @@ function fechView(){
       <button class="btn pri" onclick="exportCSV()">Exportar CSV (contas médicas)</button>
       <button class="btn pri" onclick="exportIntern()">Exportar internações (CSV)</button>
       <button class="btn pri" onclick="printMes()">Escala do mês · 1 página</button>
-      ${meusSetores().map(sg=>`<button class="btn" onclick="printSetor('${sg}')">Imprimir grade · ${SETORES[sg].nome}</button>`).join('')}
       <button class="btn" onclick="printFolha()">Folha de assinatura</button>
-      ${user.tipo==='coord'?`<button class="btn" onclick="openImport()">Importar escala</button>`:''}
+      ${editaAlgumaEscala()?`<button class="btn" onclick="openImport()">Importar escala</button>`:''}
     </div>
+    ${podeImprimirGrade()&&meusSetores().length?`<div class="imprbox">
+      <div class="imprtit">Imprimir a grade do mês</div>
+      <div class="tools">${meusSetores().map(sg=>
+        `<button class="btn" onclick="printSetor('${sg}')">${(SETORES[sg]||{}).nome||sg}</button>`).join('')}</div>
+    </div>`:''}
     <p style="font-size:12px;color:var(--mut);margin:2px 2px 10px">Escala ativa: <b>${MES.label}</b>${MES.corrente?' (mês atual)':''}${MES.info?` · ${MES.info}`:''}. Meses arquivados: ${mesesDisponiveis().length}.</p>
     <div class="tblwrap"><table>
       <thead><tr><th>Médico</th><th>Previsto</th><th>A pagar</th><th>Faltas</th><th>Int. UI ✓</th><th>Int. UTI ✓</th></tr></thead>
@@ -2109,6 +2168,7 @@ function printFolha(){
 
 /* ---------- Importar escala (coordenação) ---------- */
 function openImport(){
+  if(!editaAlgumaEscala()){ toast('Importar escala é da coordenação que sobe a escala.'); return; }
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Importar escala de um novo mês</h3>
@@ -2190,7 +2250,7 @@ function gradeDe(sigla){
   const out=[];
   (stx.postos||[]).forEach(p=>(p.turnos||['DIA']).forEach(tn=>
     out.push({setor:sigla, papel:p.papel, turno:tn, soUteis:!!p.soUteis,
-              semFeriado:!!p.semFeriado, diario:!!p.diario})));
+              semFeriado:!!p.semFeriado, diario:!!p.diario, fixoDow:p.fixoDow||null})));
   // DIA antes de NOITE, na ordem dos postos
   return out.sort((a,b)=>(a.turno==='DIA'?0:1)-(b.turno==='DIA'?0:1));
 }
@@ -2254,6 +2314,13 @@ function datasEmComum(a, b){
   }
   return false;
 }
+// Escala que se repete sempre igual, por dia da semana (Urologia).
+// Vem do catálogo, não de cadastro mensal: todo mês gerado já nasce preenchido.
+function medicoFixoDow(g, iso){
+  if(!g || !g.fixoDow) return null;
+  const dow = new Date(iso+'T12:00:00').getDay();
+  return g.fixoDow[dow] || g.fixoDow[String(dow)] || null;
+}
 // Quem a regra indica para um posto específico numa data
 function medicoDaRegra(iso, setor, papel, turno){
   const achou = REGRAS.find(r=> r.ativa && r.setor===setor && r.papel===papel && r.turno===turno && regraCobre(r, iso));
@@ -2271,7 +2338,8 @@ function gerarShiftsDoMes(ym){
       shifts.push({
         id: idMes(ym, n, 'G'),
         data: iso, dia: wdPT(iso), setor: g.setor, turno: g.turno, papel: g.papel,
-        medico: medicoDaRegra(iso, g.setor, g.papel, g.turno) || 'A DEFINIR',
+        medico: medicoDaRegra(iso, g.setor, g.papel, g.turno)
+                || medicoFixoDow(g, iso) || 'A DEFINIR',
         hini: noite?'19:00':'07:00', hfim: noite?'07:00':'19:00'
       });
     });
@@ -2299,11 +2367,15 @@ function rotuloRegra(r){
   return quando;
 }
 function openRegras(){
+  const sgsEd = setoresQueEdito();
+  if(!sgsEd.length){ toast('As regras de escala são da coordenação que sobe a escala do setor.'); return; }
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
-    <h3>Regras de Escala</h3>
+    <h3>Regras de escala · ${nomesSetores(sgsEd)}</h3>
     <p>Regras fixas preenchem automaticamente os postos quando um mês novo é gerado.
-    Elas valem <b>apenas para datas futuras</b> — escalas e registros já existentes nunca são alterados.</p>
+    Elas valem <b>apenas para datas futuras</b> — escalas e registros já existentes nunca são alterados.
+    Você só cadastra e encerra regras ${sgsEd.length>1?'dos seus setores':'do seu setor'}:
+    <b>${nomesSetores(sgsEd)}</b>.</p>
     <div id="regrasLista">${listaRegras()}</div>
     <div class="row"><button class="btn" onclick="closeOv()">Fechar</button>
       <button class="btn pri" onclick="openNovaRegra()">Nova regra</button></div>
@@ -2312,12 +2384,13 @@ function openRegras(){
   document.body.appendChild(ov);
 }
 function listaRegras(){
-  const alc=meusSetores();
+  const alc=setoresQueEdito();
   const minhas=REGRAS.filter(r=>alc.includes(r.setor));
   const ativas=minhas.filter(r=>r.ativa), inativas=minhas.filter(r=>!r.ativa);
-  if(!REGRAS.length) return '<div class="empty" style="padding:14px">Nenhuma regra cadastrada.</div>';
+  if(!minhas.length) return '<div class="empty" style="padding:14px">Nenhuma regra cadastrada '
+    + (alc.length>1?'nos seus setores':'no seu setor') + '.</div>';
   const linha = r => `<div class="ocard" style="border-left-color:${r.ativa?'var(--royal)':'var(--line)'}">
-      <div class="ocard-txt"><b>${r.medico}</b> — ${(SETORES[r.setor]||{}).nome||r.setor} · ${rotuloPapel(r)} · ${r.turno}</div>
+      <div class="ocard-txt"><b>${r.medico}</b> — <b>${(SETORES[r.setor]||{}).nome||r.setor}</b> · ${rotuloPapel(r)} · ${r.turno}</div>
       <div class="ocard-meta">${rotuloRegra(r)} · de ${fmtD(r.inicio)}${r.fim?' até '+fmtD(r.fim):' (sem data final)'}</div>
       <div class="ocard-meta">criada por ${r.criadoPor} em ${r.criadoEm}${r.ativa?'':' · <b>ENCERRADA</b>'}</div>
       ${r.ativa?`<button class="btn dan" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="encerrarRegra('${r.id}')">Encerrar regra</button>`:''}
@@ -2327,7 +2400,7 @@ function listaRegras(){
 }
 function encerrarRegra(id){
   const r=REGRAS.find(x=>x.id===id); if(!r) return;
-  if(!alcancaSetor(r.setor)){ toast('Esta regra é de outro setor.'); return; }
+  if(!editoEscala(r.setor)){ toast('Esta regra é de outro setor.'); return; }
   if(!confirm(`Encerrar a regra de ${r.medico} (${rotuloRegra(r)})?\n\nAs escalas já geradas NÃO mudam. A regra deixa de valer para os próximos meses e fica no histórico para auditoria.`)) return;
   r.ativa=false; r.encerradaPor=autor(); r.encerradaEm=new Date().toLocaleString('pt-BR');
   log('Regra de escala encerrada', `${r.medico} · ${rotuloRegra(r)}`);
@@ -2343,17 +2416,29 @@ function openNovaRegra(base){
   const dowBase = base ? new Date(base.data+'T12:00:00').getDay() : new Date().getDay();
   const dows=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const ov=document.getElementById('ov');
+  const sgsEd = setoresQueEdito();
+  // Só os postos dos setores que esta pessoa sobe, e cada opção diz o setor.
+  const postos = GRADE_PADRAO.map((g,i)=>({g,i})).filter(({g})=>sgsEd.includes(g.setor));
+  if(!postos.length){ toast('Nenhum posto do seu setor para cadastrar regra.'); return; }
+  const sgBase = (base && sgsEd.includes(base.setor)) ? base.setor : postos[0].g.setor;
+  const eq = escalaveisDoSetor(sgBase);
   const html=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Nova regra de escala</h3>
-    ${base?`<p>Baseada em: <b>${fmtD(base.data)}</b> · ${base.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(base)} · ${base.turno}</p>`:''}
-    <label style="font-size:12px;font-weight:700;color:var(--mut)">Médico</label>
-    <select id="rgMed">${escalaveis().map(m=>`<option ${base&&base.medico===m?'selected':''}>${m}</option>`).join('')}</select>
-    <label style="font-size:12px;font-weight:700;color:var(--mut)">Posto</label>
-    <select id="rgPosto">${GRADE_PADRAO.map((g,i)=>{
+    <p style="margin:0 0 8px;font-size:12.5px;color:var(--mut)">Vale para a escala de
+    <b>${nomesSetores(sgsEd)}</b>${base?` · baseada em <b>${fmtD(base.data)}</b> · ${rotuloPapel(base)} · ${base.turno}`:''}.</p>
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Posto (de qual escala)</label>
+    <select id="rgPosto">${postos.map(({g,i})=>{
       const sel = base && base.setor===g.setor && base.papel===g.papel && base.turno===g.turno;
       const nome = (g.setor==='UNI'&&g.papel==='Plantonista')?'Prescritor(a)':g.papel;
-      return `<option value="${i}" ${sel?'selected':''}>${g.setor==='EME'?'Emergência':'Internação'} · ${nome} · ${g.turno}</option>`;
+      return `<option value="${i}" ${sel?'selected':''}>${(SETORES[g.setor]||{}).nome||g.setor} · ${nome} · ${g.turno}</option>`;
     }).join('')}</select>
+    <label style="font-size:12px;font-weight:700;color:var(--mut)">Médico</label>
+    <select id="rgMed">
+      ${eq.doSetor.length?`<optgroup label="Equipe de ${(SETORES[sgBase]||{}).nome||sgBase}">
+        ${eq.doSetor.map(m=>`<option ${base&&base.medico===m?'selected':''}>${m}</option>`).join('')}</optgroup>`:''}
+      <optgroup label="Demais cadastrados">
+        ${eq.outros.map(m=>`<option ${base&&base.medico===m?'selected':''}>${m}</option>`).join('')}</optgroup>
+    </select>
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Repetição</label>
     <select id="rgPadrao" onchange="rgToggleDow()">${Object.entries(PADROES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
     <div id="rgDowBox">
@@ -2394,6 +2479,8 @@ function salvarNovaRegra(){
   const err=document.getElementById('rgerr');
   const medico=document.getElementById('rgMed').value;
   const g=GRADE_PADRAO[Number(document.getElementById('rgPosto').value)];
+  if(!g || !editoEscala(g.setor)){
+    err.textContent='Este posto é de outro setor.'; err.style.display='block'; return; }
   const padrao=document.getElementById('rgPadrao').value;
   const dow=Number(document.getElementById('rgDow').value);
   const inicio=document.getElementById('rgIni').value;
@@ -2442,6 +2529,7 @@ function aplicarRegraFuturo(r){
 }
 
 function openGerar(){
+  if(!editaAlgumaEscala()){ toast('Gerar escala é da coordenação que sobe a escala do setor.'); return; }
   const opcoes = proximosMeses(6).map(ym=>{
     const existe = ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length;
     return `<option value="${ym}" ${existe?'disabled':''}>${rotuloMes(ym)}${existe?' — já existe':''}</option>`;
@@ -2470,6 +2558,7 @@ function openGerar(){
   document.body.appendChild(ov);
 }
 function gerarEscala(){
+  if(!editaAlgumaEscala()){ toast('Gerar escala é da coordenação que sobe a escala do setor.'); return; }
   const ym=document.getElementById('gerMes').value;
   const err=document.getElementById('gererr');
   if(!ym){ err.textContent='Selecione o mês.'; err.style.display='block'; return; }
@@ -2490,6 +2579,7 @@ function gerarEscala(){
   mesAtivo=ym; loadEscala(); selDate=ym+'-01'; selSetor='TODOS'; render(); window.scrollTo(0,0);
 }
 function publicarEscala(){
+  if(!editaAlgumaEscala()){ toast('Publicar é da coordenação que sobe a escala.'); return; }
   const ym=MES.ym;
   if(!ehRascunho(ym)){ toast('Esta escala já está publicada.'); return; }
   const vagas=SHIFTS.filter(s=>s.medico==='A DEFINIR').length;
@@ -2501,6 +2591,7 @@ function publicarEscala(){
   loadEscala(); render();
 }
 function voltarRascunho(){
+  if(!editaAlgumaEscala()){ toast('Esta ação é da coordenação que sobe a escala.'); return; }
   const ym=MES.ym;
   if(!confirm(`Voltar a escala de ${rotuloMes(ym)} para rascunho? Ela deixará de aparecer para a equipe até ser publicada de novo.`)) return;
   ESCALAS[ym].rascunho=true;
@@ -2520,6 +2611,7 @@ function salvarEscalaMes(ym){
 function liberarVaga(ids){
   const L=listaIds(ids); const id=L[0];
   const s=sh(id); if(!s) return;
+  if(!edito(s)){ toast('Esta escala é de outra coordenação.'); return; }
   const x=st(id);
   if((x.intern&&x.intern.length)||(x.ocor&&x.ocor.length)){
     toast('Este plantão tem internações ou ocorrências registradas — resolva-as antes de liberar a vaga.'); return;
@@ -2543,6 +2635,7 @@ function liberarVaga(ids){
 // Remove um posto e registra o motivo (fica auditável e é reversível)
 function removerPosto(id, motivoDireto){
   const s=sh(id); if(!s) return;
+  if(!edito(s)){ toast('Esta escala é de outra coordenação.'); return; }
   const x=st(s.id);
   // Só internação e ocorrência impedem: são registros clínicos/financeiros reais.
   if((x.intern&&x.intern.length)||(x.ocor&&x.ocor.length)){
@@ -2575,6 +2668,7 @@ function removerPosto(id, motivoDireto){
 }
 // Reabre a vaga do 3º plantonista num dia em que ela havia sido retirada
 function reabrirTerceiro(iso){
+  if(!editoEscala('EME')){ toast('O 3º plantonista é da coordenação da Emergência.'); return; }
   const ym=iso.slice(0,7); const reg=semTerceiroNoDia(iso);
   if(!reg){ toast('Não há registro de retirada nesta data.'); return; }
   if(!confirm(`Reabrir a vaga de 3º plantonista em ${fmtD(iso)}?\n\nMotivo registrado da retirada: ${reg.motivo}\n\nA vaga voltará como "A DEFINIR" para você escalar alguém.`)) return;
@@ -2590,6 +2684,7 @@ function reabrirTerceiro(iso){
 }
 // Painel de feriados: ver e ajustar o 3º plantonista em cada feriado do mês
 function openFeriados(){
+  if(!editoEscala('EME')){ toast('O 3º plantonista é da coordenação da Emergência.'); return; }
   const fer=feriadosDe(MES.y);
   const doMes=Object.keys(fer).filter(iso=>iso.slice(0,7)===MES.ym).sort();
   const linhas = doMes.map(iso=>{
@@ -3200,6 +3295,34 @@ function meusSetores(){
   return lista.length ? todos.filter(x=>lista.includes(x)) : todos;
 }
 function alcancaSetor(sg){ return meusSetores().includes(sg); }
+/* ---------- Quem sobe a escala ----------
+   Configurar escala e regras de escala existe só para quem sobe a escala, e
+   somente no próprio setor: Magno na Emergência e na Internação, Poliana na UTI,
+   Breno na Ortopedia, Ariana na Cirurgia Geral. A Urologia é automática — a regra
+   é fixa e ninguém precisa alimentar. A direção e o administrativo acompanham,
+   imprimem a grade de qualquer setor e não editam escala. */
+function editoEscala(sg){
+  if(!user || !sg) return false;
+  const stx = SETORES[sg];
+  if(!stx || stx.natureza==='informativo' || stx.autoEscala) return false;
+  if(user.diretor) return false;
+  if(!(user.tipo==='coord' || user.secretaria)) return false;
+  return meusSetores().includes(sg);
+}
+function edito(s){ return editoEscala(s && s.setor); }
+function setoresQueEdito(){ return setoresDeEscala().filter(editoEscala); }
+function editaAlgumaEscala(){ return setoresQueEdito().length>0; }
+function nomesSetores(sgs){ return sgs.map(x=>(SETORES[x]||{}).nome||x).join(' · '); }
+/* Coordenação ou secretaria sem setor definido no cadastro enxerga tudo —
+   isso precisa ficar visível, não silencioso. */
+function semSetorDefinido(){
+  return !!user && (user.tipo==='coord' || user.secretaria) && !user.diretor
+      && !String(user.setores||'').trim();
+}
+function podeImprimirGrade(){
+  return !!user && (user.tipo==='coord' || user.secretaria
+                 || user.tipo==='adm' || user.diretor);
+}
 function podeVerValores(){
   if(!user) return false;
   if(user.secretaria) return false;
