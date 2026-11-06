@@ -235,6 +235,20 @@ td.n{text-align:center;font-family:'IBM Plex Mono',monospace}
 tr:nth-child(even) td{background:#F7F9FD}
 .tools{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
 .tools .btn{flex:1 1 150px}
+/* acompanhamento mensal do BI */
+.bitop{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin:0 0 10px}
+.bik{font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.3px}
+.biv{font-size:19px;font-weight:800;color:var(--navy);line-height:1.25}
+.leg{display:flex;flex-wrap:wrap;gap:6px 12px;margin:8px 0 2px}
+.lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--mut);font-weight:600}
+.lg i{width:10px;height:10px;border-radius:3px;display:inline-block;flex:0 0 auto}
+.binota{font-size:11.5px;color:var(--mut);line-height:1.55;margin:8px 0 0}
+/* na tabela mês a mês o nome do setor fica parado enquanto os meses rolam */
+.tmes td:first-child,.tmes th:first-child{position:sticky;left:0;z-index:1;background:var(--paper);
+  box-shadow:1px 0 0 var(--line)}
+.tmes th:first-child{background:var(--ice)}
+.tmes tr[style*="font-weight:800"] td:first-child{background:var(--paper)}
+.tmes td,.tmes th{font-variant-numeric:tabular-nums}
 /* caixa de impressão da grade, na aba Escala */
 .imprbox{border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:0 0 10px;background:#fff}
 .imprbox .tools{gap:6px;margin:0}
@@ -305,6 +319,30 @@ nav button.on::after{content:"";width:18px;height:3px;border-radius:2px;backgrou
   #printArea.onepage .ln{white-space:normal;margin-bottom:1px}
   #printArea.onepage .ln b{font-size:9px;background:#E8ECF5;padding:0 2px;border-radius:2px}
   #printArea.onepage .ln.uni b{background:#DFEEE7}
+  /* painel de custos para o corporativo */
+  #printArea{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #printArea.bi h1{font-size:16px}
+  #printArea.bi h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;
+    margin:11px 0 5px;padding-bottom:3px;border-bottom:1.5px solid #12205F;color:#12205F}
+  #printArea.bi .sm{font-size:9px;font-weight:400;color:#555}
+  #printArea.bi .bikpi{display:flex;gap:7px;margin:8px 0 2px}
+  #printArea.bi .bikpi>div{flex:1;border:1px solid #BCC7DC;border-radius:4px;padding:5px 7px}
+  #printArea.bi .bikpi span{display:block;font-size:8.5px;text-transform:uppercase;
+    letter-spacing:.04em;color:#555}
+  #printArea.bi .bikpi b{display:block;font-size:13px;color:#12205F}
+  #printArea.bi .bikpi i{display:block;font-size:8.5px;color:#555;font-style:normal}
+  #printArea.bi .gwrap{width:100%;margin:2px 0}
+  #printArea.bi .gwrap svg{display:block;width:100%;height:auto;max-height:68mm}
+  #printArea.bi .bileg{display:flex;flex-wrap:wrap;gap:3px 11px;font-size:9px;margin:2px 0 0}
+  #printArea.bi .bileg span{display:inline-flex;align-items:center;gap:3px}
+  #printArea.bi .bileg i{width:8px;height:8px;border-radius:2px;display:inline-block}
+  #printArea.bi table{font-size:9.5px}
+  #printArea.bi th,#printArea.bi td{padding:3px 5px}
+  #printArea.bi .n{text-align:right;white-space:nowrap}
+  #printArea.bi tr.tot td{background:#E8ECF5;font-weight:800}
+  #printArea.bi .bino{margin-top:9px;font-size:9px;line-height:1.5;color:#222}
+  #printArea.bi .bino p{margin:0 0 4px}
+  #printArea.bi .pe{margin-top:8px;font-size:8.5px;color:#555}
   #printArea.onepage h1{font-size:16px}
   #printArea.onepage .pi{font-size:10.5px}
   #printArea.onepage .pgbreak{page-break-before:always;margin-top:6px}
@@ -735,11 +773,15 @@ async function logout(){
 /* ---------- senhas e auditoria ---------- */
 function autor(){
   if(!user) return 'sistema';
-  const p = user.tipo==='coord' ? 'coordenação' : user.tipo==='adm' ? 'administrativo' : 'médico';
+  const p = user.diretor ? 'direção médica'
+          : user.secretaria ? 'secretaria'
+          : user.tipo==='coord' ? 'coordenação'
+          : user.tipo==='adm' ? 'administrativo' : 'médico';
   return `${user.nome} (${p})`;
 }
 function log(acao, detalhe){
   AUD.unshift({ts:new Date().toLocaleString('pt-BR'), iso:new Date().toISOString(), quem:autor(), acao, detalhe});
+  if(!supa) return;          // sem banco, o registro fica só na sessão — nunca derruba a ação
   supa.from('auditoria').insert({quem:autor(), acao, detalhe})
     .then(({error})=>{ if(error) console.error('auditoria:',error); });
 }
@@ -1797,7 +1839,7 @@ function alteracoesPos(){
 function validarParcial(){
   const sgs=setoresQueFecho();
   if(!sgs.length){ toast('Seu perfil não fecha escala.'); return; }
-  const nomes=sgs.map(sg=>(SETORES[sg]||{}).nome||sg).join(' e ');
+  const nomes=listaPT(sgs.map(sg=>(SETORES[sg]||{}).nome||sg));
   if(!confirm(`Liberar a escala de ${nomes} em ${MES.label} para conferência do administrativo?\n\n`+
     `O estado atual passa a ser a referência. Qualquer alteração feita depois aparecerá destacada.\n\n`+
     `Os demais setores não são afetados.`)) return;
@@ -1811,7 +1853,7 @@ function validarParcial(){
 function validarFinal(){
   const sgs=setoresQueFecho();
   if(!sgs.length){ toast('Seu perfil não fecha escala.'); return; }
-  const nomes=sgs.map(sg=>(SETORES[sg]||{}).nome||sg).join(' e ');
+  const nomes=listaPT(sgs.map(sg=>(SETORES[sg]||{}).nome||sg));
   const e=estadoFech(sgs);
   if(!e.todosParcial){ toast('Libere a conferência (dia 25) antes de fechar para pagamento.'); return; }
   const p=pendencias();
@@ -1827,7 +1869,7 @@ function validarFinal(){
 function reabrirFech(qual){
   const sgs=setoresQueFecho();
   if(!sgs.length){ toast('Seu perfil não fecha escala.'); return; }
-  const nomes=sgs.map(sg=>(SETORES[sg]||{}).nome||sg).join(' e ');
+  const nomes=listaPT(sgs.map(sg=>(SETORES[sg]||{}).nome||sg));
   if(!confirm((qual==='final'
       ? `Reabrir ${nomes} (desfazer o fechamento para pagamento)?`
       : `Reabrir a conferência de ${nomes}?`)+'\n\nOs demais setores não são afetados.')) return;
@@ -1906,7 +1948,7 @@ function painelFechamento(){
   const meuDetalhe = (meus.length>1) ? `<div class="altbox" style="margin-top:8px">
       ${e.porSetor.map(x=>linha(x.sg)).join('')}</div>` : '';
   return `<div class="fechpanel" style="border-left-color:${cor}">
-    <div class="fechtit">Fechamento de ${MES.label}${meus.length?' · '+meus.map(sg=>(SETORES[sg]||{}).nome||sg).join(' e '):''}</div>
+    <div class="fechtit">Fechamento de ${MES.label}${meus.length?' · '+listaPT(meus.map(sg=>(SETORES[sg]||{}).nome||sg)):''}</div>
     <div class="fechest" style="color:${cor}">${estado}</div>
     ${dica}${botoes}${meuDetalhe}${blocoAlt}${quadro}
   </div>`;
@@ -2020,10 +2062,19 @@ function linhasImpressao(sg){
   return out;
 }
 /* Grade do mês de um setor, em paisagem — o formato que a coordenação distribui */
+/* A orientação do papel muda conforme o que está sendo impresso: a grade do
+   mês pede paisagem, o resto é retrato. Um @page fixo não dá conta, então a
+   regra é trocada antes de chamar a impressão. */
+function orientarPagina(modo){
+  let tag=document.getElementById('pageOri');
+  if(!tag){ tag=document.createElement('style'); tag.id='pageOri'; document.head.appendChild(tag); }
+  tag.textContent = `@page{size:A4 ${modo||'portrait'};margin:8mm}`;
+}
 function printSetor(sg){
   if(!alcancaSetor(sg)){ toast('Este setor não é seu.'); return; }
   const stx=SETORES[sg]; if(!stx){ toast('Setor desconhecido.'); return; }
-  log('Impressão da grade do mês · '+st.nome, MES.label);
+  log('Impressão da grade do mês · '+stx.nome, MES.label);
+  orientarPagina('landscape');
   const linhas=linhasImpressao(sg);
   const wd=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
   const off=(new Date(MES.y, MES.m-1, 1).getDay()+6)%7;   // seg = 0
@@ -2074,6 +2125,7 @@ function printSetor(sg){
 }
 function printMes(){
   log('Impressão da escala do mês (Emergência + Internação)', MES.label);
+  orientarPagina('portrait');
   const pa=document.getElementById('printArea');
   pa.className='onepage';
   const wd=['SEG','TER','QUA','QUI','SEX','SÁB','DOM'];
@@ -2156,6 +2208,7 @@ function folhaPostos(){
 }
 function printFolha(){
   log('Impressão da folha de assinatura', MES.label);
+  orientarPagina('portrait');
   const pa=document.getElementById('printArea');
   pa.className='';
   pa.innerHTML=`<div class="ph"><img src="${LOGO}" alt=""><div>
@@ -3315,6 +3368,11 @@ function edito(s){ return editoEscala(s && s.setor); }
 function setoresQueEdito(){ return setoresDeEscala().filter(editoEscala); }
 function editaAlgumaEscala(){ return setoresQueEdito().length>0; }
 function nomesSetores(sgs){ return sgs.map(x=>(SETORES[x]||{}).nome||x).join(' · '); }
+/* "A, B, C e D" — com cinco setores, juntar tudo com "e" fica ilegível */
+function listaPT(itens){
+  const a=itens.filter(Boolean);
+  return a.length<2 ? (a[0]||'') : a.slice(0,-1).join(', ')+' e '+a[a.length-1];
+}
 /* Coordenação ou secretaria sem setor definido no cadastro enxerga tudo —
    isso precisa ficar visível, não silencioso. */
 function semSetorDefinido(){
@@ -3467,14 +3525,37 @@ const FIXOS = [
 /* ---------- Custos de honorários médicos ----------
    Cinco classificações. Plantão e produção saem da escala e dos
    lançamentos do mês; o resto vem das regras de repasse. */
-function custosHM(){
-  const iso = MES.ym ? MES.ym+'-01' : todayISO();
+/* Plantões de um mês qualquer já gravado. O mês ativo usa a lista viva. */
+function shiftsDoMes(ym){
+  if(!ym || ym===MES.ym) return SHIFTS;
+  const e = ESCALAS[ym];
+  return (e && e.shifts) ? e.shifts : [];
+}
+/* As cinco classificações do custo de HM, numa fonte só: o painel do mês,
+   o gráfico de acompanhamento e a legenda leem daqui. */
+const CLASSES_HM = [
+  {id:'plant', nome:'Plantão assistencial', cor:'#2756C3', tipo:'fixo',
+   obs:'Presença médica por 12h, direto da escala do mês'},
+  {id:'sobre', nome:'Sobreaviso', cor:'#1C7C54', tipo:'fixo',
+   obs:'Disponibilidade de especialista fora da presença física'},
+  {id:'gest',  nome:'Gestão e coordenação', cor:'#6B4FBB', tipo:'fixo',
+   obs:'Coordenações de serviço'},
+  {id:'apoio', nome:'Serviços de apoio', cor:'#B06E0A', tipo:'fixo',
+   obs:'Equipes de suporte assistencial'},
+  {id:'prod',  nome:'Produção variável', cor:'#C0392B', tipo:'variável',
+   obs:'Bônus por conversão de internação, sobre produção auditada'}
+];
+// custosHM() sem argumento = mês ativo. Com 'AAAA-MM', calcula aquele mês,
+// com os valores de repasse que estavam vigentes nele.
+function custosHM(ymArg){
+  const ym  = ymArg || MES.ym || todayISO().slice(0,7);
+  const iso = ym+'-01';
   const V = getValores(iso);
-  const ym = iso.slice(0,7);
+  const LS = shiftsDoMes(ym);
 
   // 1 · plantão assistencial, direto da escala
   const plant = {};
-  SHIFTS.forEach(s=>{
+  LS.forEach(s=>{
     if(statusOf(s)==='falta') return;
     const ts = tipoServico(s);
     const k  = s.setor+'|'+ts.rot;
@@ -3502,7 +3583,7 @@ function custosHM(){
 
   // 5 · produção variável
   let bUI=0, bUTI=0, nUI=0, nUTI=0;
-  SHIFTS.forEach(s=>{
+  LS.forEach(s=>{
     if(statusOf(s)==='falta') return;
     const vd = getValores(s.data);
     (st(s.id).intern||[]).forEach(i=>{
@@ -3516,25 +3597,15 @@ function custosHM(){
   if(nUTI) itensProd.push([`Conversões UTI · ${nUTI} × ${BRL(Number(V.bonus_uti||0))}`, bUTI]);
 
   const soma = a => a.reduce((x,i)=>x + (i[2]?0:i[1]), 0);
-  const classes = [
-    {id:'plant', nome:'Plantão assistencial', cor:'#2756C3', tipo:'fixo',
-     obs:'Presença médica por 12h, direto da escala do mês', itens:itensPlant, total:soma(itensPlant)},
-    {id:'sobre', nome:'Sobreaviso', cor:'#1C7C54', tipo:'fixo',
-     obs:'Disponibilidade de especialista fora da presença física', itens:itensSob, total:soma(itensSob)},
-    {id:'gest', nome:'Gestão e coordenação', cor:'#6B4FBB', tipo:'fixo',
-     obs:'Coordenações de serviço', itens:itensGest, total:soma(itensGest)},
-    {id:'apoio', nome:'Serviços de apoio', cor:'#B06E0A', tipo:'fixo',
-     obs:'Equipes de suporte assistencial', itens:itensApoio, total:soma(itensApoio)},
-    {id:'prod', nome:'Produção variável', cor:'#C0392B', tipo:'variável',
-     obs:'Bônus por conversão de internação, sobre produção auditada', itens:itensProd, total:soma(itensProd)}
-  ];
+  const porId = {plant:itensPlant, sobre:itensSob, gest:itensGest, apoio:itensApoio, prod:itensProd};
+  const classes = CLASSES_HM.map(c=>({...c, itens:porId[c.id], total:soma(porId[c.id])}));
   const total = classes.reduce((a,c)=>a+c.total,0);
   const variavel = classes.find(c=>c.id==='prod').total;
 
   // por setor, para a leitura do corporativo
   const porSetor = {};
   const add=(sg,v)=>{ porSetor[sg]=(porSetor[sg]||0)+v; };
-  SHIFTS.forEach(s=>{ if(statusOf(s)!=='falta' && s.setor!=='CG' && s.setor!=='URO') add(s.setor, valorPlantao(s)); });
+  LS.forEach(s=>{ if(statusOf(s)!=='falta' && s.setor!=='CG' && s.setor!=='URO') add(s.setor, valorPlantao(s)); });
   add('CG',  Number(V.cg_pacote||0));
   add('URO', Number(V.uro_mensal||0));
   add('NEU', Number(V.neu_mensal||0));
@@ -3554,6 +3625,255 @@ function custosHM(){
   return {classes, total, variavel, fixo:total-variavel, setores, totalSetores, ym};
 }
 
+/* ================= ACOMPANHAMENTO MENSAL =================
+   Série dos meses já gravados, do mais antigo ao mais novo. Rascunho fica
+   de fora (ainda não é custo) e mês futuro também (seria previsão misturada
+   com realizado, e é isso que estraga relatório para o corporativo). */
+function mesesDoBI(max){
+  const hoje = ymAtual();
+  return Object.keys(ESCALAS).filter(ym=>{
+    const e = ESCALAS[ym];
+    return e && e.shifts && e.shifts.length && !e.rascunho && ym<=hoje;
+  }).sort().slice(-(max||12));
+}
+function serieCustos(max){
+  const hoje = ymAtual();
+  return mesesDoBI(max).map(ym=>{
+    const setores = [...new Set(shiftsDoMes(ym).map(x=>x.setor))].sort();
+    return {ym, h:custosHM(ym), setores,
+      rot: MESES[Number(ym.slice(5,7))].slice(0,3).toLowerCase(),
+      ano: ym.slice(2,4),
+      emAndamento: ym===hoje};
+  });
+}
+/* Passo redondo para a régua do eixo */
+function escalaEixo(max){
+  const passos=[500,1e3,2e3,2.5e3,5e3,1e4,2e4,2.5e4,5e4,1e5,2e5,2.5e5,5e5,1e6,2e6];
+  const p = passos.find(x=>x >= (max||1)/4) || passos[passos.length-1];
+  return {passo:p, topo:Math.max(p, Math.ceil((max||1)/p)*p)};
+}
+function kBRL(v){
+  if(v>=1e6) return (v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mi';
+  if(v>=1000) return Math.round(v/1000).toLocaleString('pt-BR')+'k';
+  return String(Math.round(v));
+}
+function brlSec(v){ return Math.round(v).toLocaleString('pt-BR'); }
+/* Barras empilhadas em SVG puro — nenhuma biblioteca externa, funciona offline
+   e imprime. Cada coluna é um mês; cada faixa, uma classificação. */
+function graficoMensal(serie){
+  if(!serie.length) return '<div class="empty">Ainda não há mês fechado para comparar.</div>';
+  const n=serie.length;
+  const ML=48, MR=10, MT=26, MB=38;
+  // largura mínima para que com um ou dois meses o SVG não estique e exploda a fonte
+  const W = Math.max(330, ML+MR+n*30), H=214, alt=H-MT-MB;
+  const slot = (W-ML-MR)/n;              // fatia de cada mês
+  const w = Math.min(slot*0.68, 56);     // largura da barra, centrada na fatia
+  const max = Math.max(...serie.map(m=>m.h.total), 1);
+  const {passo,topo} = escalaEixo(max);
+  const y = v => MT + alt - (v/topo)*alt;
+  let g='';
+  for(let v=0; v<=topo+passo/2; v+=passo){
+    g += `<line x1="${ML}" y1="${y(v).toFixed(1)}" x2="${W-MR}" y2="${y(v).toFixed(1)}"
+            stroke="#E4E9F2" stroke-width="1"/>
+          <text x="${ML-6}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" font-size="9"
+            fill="#7A869A">${v?kBRL(v):'0'}</text>`;
+  }
+  const completo = Math.max(...serie.map(m=>m.setores.length));
+  let barras='', rotulos='';
+  serie.forEach((m,i)=>{
+    const cx = ML + slot*(i+0.5), x = cx - w/2;
+    let acc=0;
+    CLASSES_HM.forEach(c=>{
+      const bloco = m.h.classes.find(k=>k.id===c.id);
+      const val = bloco ? bloco.total : 0;
+      if(val<=0) return;
+      acc += val;
+      barras += `<rect x="${x.toFixed(1)}" y="${y(acc).toFixed(1)}" width="${w.toFixed(1)}"
+         height="${Math.max((val/topo)*alt,1).toFixed(1)}" fill="${c.cor}"
+         ${m.emAndamento?'opacity="0.75"':''}><title>${rotuloMes(m.ym)} · ${c.nome}: ${BRL(val)}</title></rect>`;
+    });
+    if(n<=8) rotulos += `<text x="${cx.toFixed(1)}" y="${(y(acc)-6).toFixed(1)}" text-anchor="middle"
+        font-size="9.5" font-weight="700" fill="#12205F">${kBRL(m.h.total)}</text>`;
+    const incompleto = m.setores.length < completo;
+    rotulos += `<text x="${cx.toFixed(1)}" y="${H-MB+15}" text-anchor="middle" font-size="10"
+        font-weight="700" fill="#12205F">${m.rot}${incompleto?'*':''}</text>
+      <text x="${cx.toFixed(1)}" y="${H-MB+26}" text-anchor="middle" font-size="8.5"
+        fill="#7A869A">${m.emAndamento?'em curso':'/'+m.ano}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img"
+      aria-label="Custo de honorários médicos por mês" style="display:block">
+    ${g}<line x1="${ML}" y1="${MT+alt}" x2="${W-MR}" y2="${MT+alt}" stroke="#C8D2E4" stroke-width="1.2"/>
+    ${barras}${rotulos}</svg>`;
+}
+function legendaHM(){
+  return `<div class="leg">${CLASSES_HM.map(c=>
+    `<span class="lg"><i style="background:${c.cor}"></i>${c.nome}</span>`).join('')}</div>`;
+}
+/* Bloco inteiro do acompanhamento: gráfico, variação e tabela por setor */
+function biMensalView(){
+  const serie = serieCustos(12);
+  if(!serie.length) return '';
+  const ult = serie[serie.length-1], ant = serie[serie.length-2];
+  // meses em que algum serviço ainda não tinha escala no app
+  const todosSg = [...new Set(serie.flatMap(m=>m.setores))];
+  const completo = Math.max(...serie.map(m=>m.setores.length));
+  const incompletos = serie.filter(m=>m.setores.length<completo).map(m=>rotuloMes(m.ym));
+  const faltando = [...new Set(serie.filter(m=>m.setores.length<completo)
+    .flatMap(m=>todosSg.filter(sg=>!m.setores.includes(sg))))]
+    .map(sg=>(SETORES[sg]||{}).nome||sg);
+  const dif = ant ? ult.h.total - ant.h.total : 0;
+  const pct = ant && ant.h.total ? (dif/ant.h.total*100) : 0;
+  const cor = dif>0 ? 'var(--danger)' : dif<0 ? 'var(--ok)' : 'var(--mut)';
+  const seta = dif>0 ? '▲' : dif<0 ? '▼' : '•';
+
+  // tabela por setor: meses nas colunas, variação do último contra o anterior
+  const recorte = serie.slice(-5);
+  const nomes = [...new Set(recorte.flatMap(m=>m.h.setores.map(x=>x[0])))];
+  const valor = (m,nome) => { const l=m.h.setores.find(x=>x[0]===nome); return l?l[1]:0; };
+  const ordem = nomes.sort((a,b)=>valor(ult,b)-valor(ult,a));
+  const linhaVar = nome => {
+    if(!ant) return '<td class="q" style="text-align:right">—</td>';
+    const d = valor(ult,nome)-valor(ant,nome);
+    if(Math.abs(d)<0.5) return '<td class="q" style="text-align:right">=</td>';
+    const c = d>0?'var(--danger)':'var(--ok)';
+    return `<td style="text-align:right;color:${c};font-weight:700;white-space:nowrap">${
+      d>0?'▲':'▼'} ${brlSec(Math.abs(d))}</td>`;
+  };
+
+  return `
+    <div class="rg-sec">Acompanhamento mensal</div>
+    <div class="rg-box">
+      <div class="bitop">
+        <div><div class="bik">${rotuloMes(ult.ym)}</div><div class="biv">${BRL(ult.h.total)}</div></div>
+        ${ant?`<div style="text-align:right">
+          <div class="bik">contra ${rotuloMes(ant.ym)}</div>
+          <div class="biv" style="color:${cor};font-size:16px">${seta} ${BRL(Math.abs(dif))}
+            <span style="font-size:12px">(${pct>0?'+':''}${pct.toFixed(1).replace('.',',')}%)</span></div>
+        </div>`:''}
+      </div>
+      ${graficoMensal(serie)}
+      ${legendaHM()}
+      ${serie.length===1?`<p class="binota">Por enquanto há um mês gravado. A coluna de comparação
+        e a variação aparecem sozinhas a partir do segundo mês — nada a fazer, é só o tempo passar.</p>`:''}
+      ${incompletos.length?`<p class="binota"><b>*</b> ${incompletos.length>3
+          ? 'Nos meses marcados com asterisco'
+          : 'Em '+listaPT(incompletos)} a escala de
+        ${listaPT(faltando)} ainda não estava no app, então o <b>plantão</b> desses serviços não
+        entra no total desses meses. Os contratos fixos — coordenações e sobreavisos mensais —
+        entram em todos os meses, porque já existiam. O degrau na coluna é isso, não aumento de custo.</p>`:''}
+      ${ult.emAndamento?`<p class="binota">${rotuloMes(ult.ym)} está em curso: os valores fixos já
+        estão inteiros, a produção variável ainda recebe lançamentos até o fechamento.</p>`:''}
+    </div>
+    <div class="rg-sec">Por setor, mês a mês <span class="q">· valores em R$</span></div>
+    <div class="tblwrap"><table class="tmes">
+      <thead><tr><th>Setor</th>${recorte.map(m=>
+        `<th style="text-align:right">${m.rot}/${m.ano}</th>`).join('')}<th style="text-align:right">variação</th></tr></thead>
+      <tbody>
+        ${ordem.map(nome=>`<tr><td>${nome}</td>
+          ${recorte.map(m=>`<td style="text-align:right">${valor(m,nome)?brlSec(valor(m,nome)):'<span class="q">—</span>'}</td>`).join('')}
+          ${linhaVar(nome)}</tr>`).join('')}
+        <tr style="font-weight:800;border-top:2px solid var(--line)">
+          <td>Total</td>
+          ${recorte.map(m=>`<td style="text-align:right">${brlSec(m.h.total)}</td>`).join('')}
+          <td style="text-align:right;color:${cor}">${ant?`${seta} ${brlSec(Math.abs(dif))}`:'—'}</td></tr>
+      </tbody>
+    </table></div>
+    <p class="binota">Mês em rascunho e mês futuro ficam fora do acompanhamento — entram quando
+    a escala é publicada e o mês chega.</p>`;
+}
+/* Painel de custos em papel: o que vai anexado ao relatório do corporativo.
+   Mesma série e mesmos números da tela — nada é recalculado por fora. */
+function printBI(){
+  if(!podeVerValores()){ toast('Sem acesso ao painel de custos.'); return; }
+  const h = custosHM();
+  const serie = serieCustos(12);
+  const recorte = serie.slice(-6);
+  const ult = serie[serie.length-1], ant = serie[serie.length-2];
+  const dif = ant ? ult.h.total - ant.h.total : 0;
+  const pct = ant && ant.h.total ? (dif/ant.h.total*100) : 0;
+  const seta = dif>0 ? '▲' : dif<0 ? '▼' : '';
+  const pctFixo = h.total ? (h.fixo/h.total*100) : 0;
+
+  const todosSg = [...new Set(serie.flatMap(m=>m.setores))];
+  const completo = serie.length ? Math.max(...serie.map(m=>m.setores.length)) : 0;
+  const incompletos = serie.filter(m=>m.setores.length<completo).map(m=>rotuloMes(m.ym));
+  const faltando = [...new Set(serie.filter(m=>m.setores.length<completo)
+    .flatMap(m=>todosSg.filter(sg=>!m.setores.includes(sg))))]
+    .map(sg=>(SETORES[sg]||{}).nome||sg);
+
+  const col = m => `<th class="n">${m.rot}/${m.ano}${m.emAndamento?'<br><span class="sm">em curso</span>':''}</th>`;
+  const vClasse = (m,id) => { const c=m.h.classes.find(x=>x.id===id); return c?c.total:0; };
+  const vSetor  = (m,nome) => { const l=m.h.setores.find(x=>x[0]===nome); return l?l[1]:0; };
+  const setoresNomes = [...new Set(recorte.flatMap(m=>m.h.setores.map(x=>x[0])))]
+    .sort((a,b)=>vSetor(ult,b)-vSetor(ult,a));
+  const varia = (a,b) => {
+    if(!ant) return '<td class="n">—</td>';
+    const d=a-b; if(Math.abs(d)<0.5) return '<td class="n">=</td>';
+    return `<td class="n"><b>${d>0?'▲':'▼'} ${brlSec(Math.abs(d))}</b></td>`;
+  };
+
+  log('Impressão do painel de custos de HM', MES.label+' · '+BRL(h.total));
+  orientarPagina('portrait');
+  const pa=document.getElementById('printArea');
+  pa.className='bi';
+  pa.innerHTML=`
+    <div class="ph"><img src="${LOGO}" alt=""><div>
+      <h1>CUSTOS DE HONORÁRIOS MÉDICOS — ${MES.label.toUpperCase()}</h1>
+      <div class="pi">Hospital Alagoinhas · painel gerencial de HM · documento de acompanhamento interno</div>
+    </div></div>
+    <div class="bikpi">
+      <div><span>Total do mês</span><b>${BRL(h.total)}</b></div>
+      <div><span>Custo fixo</span><b>${BRL(h.fixo)}</b><i>${pctFixo.toFixed(1).replace('.',',')}% do total</i></div>
+      <div><span>Custo variável</span><b>${BRL(h.variavel)}</b><i>conversão de internação</i></div>
+      ${ant?`<div><span>Contra ${rotuloMes(ant.ym)}</span><b>${seta} ${BRL(Math.abs(dif))}</b>
+        <i>${pct>0?'+':''}${pct.toFixed(1).replace('.',',')}%</i></div>`:''}
+    </div>
+    <h2>Evolução mensal por classificação</h2>
+    <div class="gwrap">${graficoMensal(serie)}</div>
+    <div class="bileg">${CLASSES_HM.map(c=>
+      `<span><i style="background:${c.cor}"></i>${c.nome}</span>`).join('')}</div>
+    <h2>Por classificação <span class="sm">· valores em R$</span></h2>
+    <table><thead><tr><th>Classificação</th>${recorte.map(col).join('')}
+      <th class="n">variação</th></tr></thead><tbody>
+      ${CLASSES_HM.map(c=>`<tr><td>${c.nome}${c.nome.toLowerCase().includes(c.tipo)?''
+        :` <span class="sm">(${c.tipo})</span>`}</td>
+        ${recorte.map(m=>`<td class="n">${brlSec(vClasse(m,c.id))}</td>`).join('')}
+        ${varia(vClasse(ult,c.id), ant?vClasse(ant,c.id):0)}</tr>`).join('')}
+      <tr class="tot"><td>Total</td>
+        ${recorte.map(m=>`<td class="n">${brlSec(m.h.total)}</td>`).join('')}
+        ${varia(ult.h.total, ant?ant.h.total:0)}</tr>
+    </tbody></table>
+    <h2>Por setor <span class="sm">· valores em R$</span></h2>
+    <table><thead><tr><th>Setor</th>${recorte.map(col).join('')}
+      <th class="n">variação</th></tr></thead><tbody>
+      ${setoresNomes.map(nome=>`<tr><td>${nome}</td>
+        ${recorte.map(m=>`<td class="n">${vSetor(m,nome)?brlSec(vSetor(m,nome)):'—'}</td>`).join('')}
+        ${varia(vSetor(ult,nome), ant?vSetor(ant,nome):0)}</tr>`).join('')}
+      <tr class="tot"><td>Total</td>
+        ${recorte.map(m=>`<td class="n">${brlSec(m.h.totalSetores)}</td>`).join('')}
+        ${varia(ult.h.totalSetores, ant?ant.h.totalSetores:0)}</tr>
+    </tbody></table>
+    <div class="bino">
+      <p><b>Como ler.</b> Plantão, sobreaviso, coordenação e serviços de apoio são compromisso
+      fixo mensal — o valor oscila com o número de dias do mês, não com a produção. Só a
+      conversão de internação é custo variável. Cada mês usa os valores de repasse que estavam
+      vigentes nele: reajuste posterior não altera mês já passado.</p>
+      ${incompletos.length?`<p><b>Meses marcados com *.</b> Em ${listaPT(incompletos)} a escala de
+      ${listaPT(faltando)} ainda não estava no aplicativo, então o plantão desses serviços não
+      entra no total desses meses. Os contratos fixos — coordenações e sobreavisos mensais —
+      entram em todos os meses, porque já existiam. O degrau entre as colunas é isso, e não
+      aumento de custo.</p>`:''}
+      ${ult && ult.emAndamento?`<p><b>${rotuloMes(ult.ym)} está em curso.</b> Os valores fixos já
+      estão integrais; a produção variável ainda recebe lançamentos até o fechamento do mês.</p>`:''}
+      <p><b>O que fica de fora.</b> Mês em rascunho e mês futuro não entram no acompanhamento.
+      As duas aberturas — por classificação e por setor — são conferidas uma contra a outra e
+      ${Math.abs(h.total-h.totalSetores)<0.01?'fecham no mesmo total':
+        '<b>NÃO fecharam neste mês: confira antes de encaminhar</b>'}.</p>
+    </div>
+    <div class="pe">Gerado em ${new Date().toLocaleString('pt-BR')} por ${autor()} · Plantão HA</div>`;
+  window.print();
+  setTimeout(()=>{ pa.className=''; pa.innerHTML=''; }, 600);
+}
 function biView(){
   if(!podeVerValores()) return `<div class="rg-box">Sem acesso a valores de repasse.</div>`;
   const h = custosHM();
@@ -3573,6 +3893,7 @@ function biView(){
       <div class="kpi"><div class="v" style="font-size:17px">${mil(h.variavel)}</div>
         <div class="l">Variável · só conversão de internação</div></div>
     </div>
+    <div class="tools"><button class="btn pri" onclick="printBI()">Imprimir painel para o corporativo</button></div>
     <div class="rg-box"><p style="margin:0">Na visão corporativa, <b>só a conversão de internação
       é custo variável</b>. Plantão, sobreaviso, coordenação e apoio entram como compromisso fixo
       mensal, ainda que o valor oscile com o número de dias do mês.</p></div>
@@ -3584,7 +3905,8 @@ function biView(){
      :`<div class="rg-box" style="border-color:var(--ok)">
       <p style="margin:0;color:var(--ok)"><b>Conferência cruzada ok.</b> As duas aberturas —
       por classificação e por setor — fecham no mesmo total.</p></div>`}
-    <div class="rg-sec">Por classificação</div>
+    ${biMensalView()}
+    <div class="rg-sec">Por classificação · ${MES.label}</div>
     <div class="rg-box">
       ${h.classes.map(c=>`<div style="margin-bottom:13px">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:5px">
