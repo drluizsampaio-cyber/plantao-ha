@@ -140,6 +140,19 @@ h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;c
 .hubtop .q{font-size:12px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.05em}
 .hubtop .n{font-size:21px;font-weight:800;margin-top:4px;letter-spacing:-.4px}
 .hubtop .m{font-size:13px;opacity:.85;margin-top:3px}
+.pa{max-width:430px;margin:0 auto;padding:4px 0 24px}
+.pa-box{display:block;background:var(--paper);border:1px solid var(--line);border-radius:14px;
+  padding:20px 18px;box-shadow:0 1px 2px rgba(18,32,95,.05)}
+.pa-box h3{margin:0 0 8px;font-size:19px;font-weight:800;color:var(--navy);line-height:1.25}
+.pa-box p{margin:0 0 16px;font-size:13.5px;color:var(--mut);line-height:1.55}
+.pa-box input{display:block;width:100%;margin:0 0 10px;padding:13px 14px;font-size:16px;
+  font-family:inherit;border:1.5px solid var(--line);border-radius:11px;background:var(--paper);
+  color:var(--ink);box-sizing:border-box}
+.pa-box input:focus{outline:none;border-color:var(--royal)}
+.pa-box .err{display:none;color:var(--danger);font-size:13px;font-weight:600;margin:2px 0 10px}
+.pa-box .go{width:100%;padding:14px;font-size:15px;font-weight:800;border-radius:11px;
+  background:var(--navy);color:#fff;border:none;font-family:inherit;cursor:pointer}
+.pa-box .nota{margin:14px 0 0;font-size:12px;color:var(--mut);line-height:1.5}
 .finexp{color:var(--mut);font-size:11px;margin-left:4px}
 .pendbox{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0}
 .pendtit{font-size:12px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;margin-bottom:10px}
@@ -790,19 +803,18 @@ function primeiroAcessoView(){
   return `<header><img src="${LOGO}" alt="Hospital Alagoinhas">
     <div class="who"><b>${user.nome}</b>
       <button onclick="logout()">sair</button></div></header>
-  <main><div class="wrap" style="max-width:420px;margin:0 auto">
-    <div class="card" style="margin-top:18px">
-      <h3 style="margin:0 0 6px">Defina sua senha</h3>
-      <p style="margin:0 0 14px;color:var(--mut);font-size:14px;line-height:1.5">
-        Este é seu primeiro acesso. A senha que a coordenação enviou foi montada a partir do seu
+  <main><div class="pa">
+    <div class="pa-box">
+      <h3>Defina sua senha</h3>
+      <p>Este é seu primeiro acesso. A senha que a coordenação enviou foi montada a partir do seu
         e-mail, então qualquer pessoa que o conheça poderia entrar no seu lugar. Escolha uma senha
         sua para continuar.</p>
       <input type="password" id="pa1" placeholder="Nova senha (mín. 8 caracteres)" autocomplete="new-password">
       <input type="password" id="pa2" placeholder="Repita a nova senha" autocomplete="new-password">
-      <div id="paerr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:4px 0 10px"></div>
-      <button class="btn pri" style="width:100%" onclick="salvarPrimeiroAcesso()">Salvar e entrar</button>
-      <p style="margin:14px 0 0;color:var(--mut);font-size:12.5px;line-height:1.5">
-        Não use a mesma senha de outros sites. Se esquecer, a coordenação pode gerar uma nova.</p>
+      <div class="err" id="paerr"></div>
+      <button class="go" onclick="salvarPrimeiroAcesso()">Salvar e entrar</button>
+      <p class="nota">Não use a mesma senha de outros sites. Se esquecer, a coordenação pode
+        gerar uma nova.</p>
     </div></div></main>`;
 }
 async function salvarPrimeiroAcesso(){
@@ -821,13 +833,21 @@ async function salvarPrimeiroAcesso(){
     .update({senha_trocada:true}).eq('user_id',user.uid).select('user_id');
   const gravou = !e2 && Array.isArray(upd) && upd.length>0;
   user.senhaTrocada=true;
-  await carregarElenco(); await carregarNuvem(); assinarTempoReal(); carregarAud();
-  log('Senha definida no primeiro acesso',
-      gravou ? '' : 'marcador não gravado — falta permissão de UPDATE em perfis');
+  // A senha já mudou neste ponto. Se o carregamento falhar, o usuário PRECISA
+  // entrar mesmo assim — travar aqui o deixaria preso numa tela sem saída.
+  let falhouCarga=false;
+  try{
+    await carregarElenco(); await carregarNuvem(); assinarTempoReal(); carregarAud();
+  }catch(ex){ falhouCarga=true; console.error('carga pós-senha', ex); }
+  try{
+    log('Senha definida no primeiro acesso',
+        gravou ? '' : 'marcador não gravado — falta permissão de UPDATE em perfis');
+  }catch(ex){}
   tab='hub'; render();
-  toast(gravou ? 'Senha definida. Bem-vindo(a) ao Plantão HA.'
-               : 'Senha alterada, mas o registro não foi gravado. Avise a coordenação.');
-  verificarTrocasPendentes();
+  toast(falhouCarga ? 'Senha definida. Recarregue a página para carregar as escalas.'
+       : gravou   ? 'Senha definida. Bem-vindo(a) ao Plantão HA.'
+                  : 'Senha alterada, mas o registro não foi gravado. Avise a coordenação.');
+  try{ verificarTrocasPendentes(); }catch(ex){}
 }
 function abrirMinhaSenha(){
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
@@ -855,6 +875,10 @@ async function salvarMinhaSenha(){
 }
 
 /* ---------- Agora ---------- */
+/* Coordenação e direção também pegam plantão. Só mostra o card quando há. */
+function temPlantaoProprio(){
+  return !!(user && user.nome && SHIFTS.some(s=>executor(s)===user.nome));
+}
 function hubView(){
   const tile=(ic,bg,tt,ts,dest,badge)=>
     `<button class="tile" onclick="go('${dest}')">${badge?`<span class="bdg">${badge}</span>`:''}
@@ -900,6 +924,11 @@ function hubView(){
     t.push(tile('⚠️','#FFF7E6','Ocorrências','Compilado do mês','ocor',ocorN||''));
     t.push(tile('🔍','#EFE8FB','Auditoria','Registro de tudo que foi feito','aud'));
     t.push(`</div>`);
+    if(temPlantaoProprio()){
+      t.push(`<div class="hubsec">Meus plantões</div><div class="hub">`);
+      t.push(tile('📋','#E8F5EF','Meus plantões','Seus próprios plantões no mês','meus'));
+      t.push(`</div>`);
+    }
   }
   else if(user.tipo==='coord'){
     t.push(`<div class="hubsec">Coordenação · ${nomeSetores}</div><div class="hub">`);
@@ -909,6 +938,8 @@ function hubView(){
     t.push(tile('💰','#E8F5EF','Financeiro','Repasse da sua equipe','fin'));
     t.push(tile('⚠️','#FFF7E6','Ocorrências','Compilado do mês','ocor',ocorN||''));
     t.push(tile('🔍','#EFE8FB','Auditoria','Registro de tudo que foi feito','aud'));
+    if(temPlantaoProprio())
+      t.push(tile('📋','#E8F5EF','Meus plantões','Seus próprios plantões no mês','meus'));
     t.push(`</div>`);
   }
   else {
@@ -2664,11 +2695,28 @@ function finView(){
         com a coordenação do serviço.</p></div>`:''}
       <p style="font-size:12px;color:var(--mut);margin-top:10px">Valores sujeitos a conferência da coordenação e do setor de contas médicas. Apenas internações validadas entram no cálculo.</p>`;
   }
-  // Coordenação: todos os médicos + total geral + configurar valores
+  // Coordenação e direção: quem também pega plantão vê o próprio antes da equipe
+  const meu = temPlantaoProprio() ? demonstrativo(user.nome) : null;
+  const painelMeu = (meu && meu.linhas.length) ? `
+    <div class="now-head">
+      <div class="t">Meu a receber · ${MES.label}</div>
+      <div class="big">${BRL(meu.totalVisivel)}</div>
+      <div class="sub">${meu.linhas.filter(l=>!l.oculto).length} plantão(ões) seus${
+        meu.nOculto?` · ${meu.nOculto} na UTI, sem valor nesta visão`:''}</div>
+    </div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>Tipo de serviço</th><th>Qtd</th><th>Valor</th></tr></thead>
+      <tbody>${SRV_ORDEM.filter(k=>meu.porServico[k]).map(k=>{const g=meu.porServico[k];
+        return `<tr><td>${SRV_ROT[k]}</td><td class="n">${g.qtd}</td>
+          <td class="n">${BRL(g.subtotal)}</td></tr>`;}).join('')}</tbody>
+      <tfoot><tr><td colspan="2"><b>Total</b></td><td class="n"><b>${BRL(meu.totalVisivel)}</b></td></tr></tfoot>
+    </table></div>
+    <h2 style="margin-top:18px">Equipe</h2>` : '';
   const linhas=executantes().map(m=>({m, d:demonstrativo(m)})).filter(x=>x.d.linhas.length);
   linhas.sort((a,b)=>b.d.total-a.d.total);
   const geral=linhas.reduce((a,x)=>a+x.d.total,0);
   return `
+    ${painelMeu}
     <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
       <div class="kpi"><div class="v" style="font-size:18px">${BRL(geral)}</div><div class="l">Total do mês</div></div>
       <div class="kpi"><div class="v">${linhas.length}</div><div class="l">Médicos com plantão</div></div>
