@@ -680,8 +680,10 @@ function bandClass(s){
   return s.turno==='NOITE' ? 'b-NOITE' : 'b-DIA';
 }
 function bandLabel(s){
+  // '3º' é o 3º plantonista da Emergência. Diarista de outro setor (UTI) é DIAR,
+  // a mesma sigla da grade impressa — não tem nada de terceiro turno.
   if (s.setor==='UNI') return 'UNI';
-  if (s.papel.startsWith('Diarista')) return '3º';
+  if (/Diarista/i.test(s.papel)) return (s.setor==='EME') ? '3º' : 'DIAR';
   return s.turno==='NOITE' ? 'NOITE' : 'DIA';
 }
 
