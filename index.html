@@ -591,7 +591,9 @@ function loadEscala(){
           custom: !!(imp && imp.shifts && imp.shifts.length), info: imp ? imp.info : '',
           rascunho: !!(imp && imp.rascunho),
           corrente: (`${y}-${String(m).padStart(2,'0')}`===ymAtual()) };
-  if(!selDate) selDate = todayISO();   // só inicializa; não sobrescreve a navegação do usuário
+  // Só inicializa, e sempre dentro do mês ativo: antes do login o app roda com
+  // dados de demonstração de outro mês, e o dia escolhido ficava preso lá.
+  if(!selDate || selDate.slice(0,7)!==MES.ym) selDate = todayISO();
 }
 function isoLocal(d){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -972,6 +974,30 @@ function hubView(){
   }
   return t.join('');
 }
+/* Quadro do Agora: informativo, com 24h num bloco só.
+   Troca e falta continuam na aba Escala, onde a ação é por turno. */
+function cardAgora(b){
+  const exec = executor(b), stt = statusOf(b), [cls,lbl] = CHIP[stt];
+  const trocado = exec!==b.medico;
+  const x = st(b.pares[0].id);
+  const podeAbrir = user.tipo==='coord' || user.diretor
+                 || (user.tipo==='med' && exec===user.nome);
+  return `<div class="card">
+    <div class="band ${bandClass(b)}"><span class="d">${b.data.slice(8)}</span>
+      <span class="m">${b.h24?'24h':b.turno}</span></div>
+    <div class="body">
+      <div class="top"><span class="med">${exec}</span><span class="chip ${cls}">${lbl}</span></div>
+      <div class="papel">${nomeSetor(b)} · ${rotuloPapel(b)}${trocado?' · substituindo '+b.medico:''}</div>
+      <div class="hrs">${rotuloBloco(b)}${b.h24?' <span style="color:var(--mut)">· cobre os dois turnos</span>':''}</div>
+      ${(x.ocor&&x.ocor.length)?`<div class="stamp"><span style="color:var(--warn)">⚠️ ${x.ocor.length} ocorrência(s)</span></div>`:''}
+      ${podeAbrir?`<div class="acts"><button class="btn" onclick="abrirNaEscala('${b.data}','${b.setor}')">Abrir na escala</button></div>`:''}
+    </div></div>`;
+}
+function abrirNaEscala(data, setor){
+  selDate = data;
+  selSetor = alcancaSetor(setor) ? setor : 'TODOS';
+  tab = 'escala'; render(); window.scrollTo(0,0);
+}
 function agoraView(){
   const d = todayISO();
   const list = SHIFTS.filter(s=>s.data===d);
@@ -982,7 +1008,7 @@ function agoraView(){
   const blocos = presenciais.map(sg=>{
     const ls = list.filter(s=>s.setor===sg);
     if(!ls.length) return '';
-    return `<h2>${SETORES[sg].nome}</h2>${ls.map(card).join('')}`;
+    return `<h2>${SETORES[sg].nome}</h2>${agruparTurnos(ls).map(cardAgora).join('')}`;
   }).filter(Boolean).join('');
 
   // quem está de sobreaviso hoje, para acionamento
@@ -1236,8 +1262,8 @@ function card(s){
     <div class="band ${bandClass(s)}"><span class="d">${s.data.slice(8)}</span><span class="m">${bandLabel(s)}</span></div>
     <div class="body">
       <div class="top"><span class="med">${exec}</span><span class="chip ${cls}">${lbl}</span></div>
-      <div class="papel">${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)}${trocado?' · substituindo '+s.medico:''}</div>
-      <div class="hrs">${fmtD(s.data)} (${s.dia})${s.setor==='EME'?` · <b class="mono">${s.hini}–${s.hfim}</b>`:''}</div>
+      <div class="papel">${nomeSetor(s)} · ${rotuloPapel(s)}${trocado?' · substituindo '+s.medico:''}</div>
+      <div class="hrs">${fmtD(s.data)} (${s.dia}) · <b class="mono">${s.hini}–${s.hfim}</b></div>
       ${stamps?`<div class="stamp">${stamps}</div>`:''}
       ${acts?`<div class="acts">${acts}</div>`:''}
     </div></div>`;
