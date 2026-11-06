@@ -461,10 +461,10 @@ const SETORES = {
 };
 function setorDe(s){ return SETORES[s && s.setor] || null; }
 function postoDe(s){
-  const st=setorDe(s); if(!st) return null;
+  const stx=setorDe(s); if(!stx) return null;   // 'st' é função do app: não sombrear
   const p=String(s.papel||'');
-  return (st.postos||[]).find(x=>x.papel===p)
-      || (st.postos||[]).find(x=>x.alias && p.startsWith(x.alias)) || null;
+  return (stx.postos||[]).find(x=>x.papel===p)
+      || (stx.postos||[]).find(x=>x.alias && p.startsWith(x.alias)) || null;
 }
 // Ordem e rótulos dos tipos de serviço, derivados do catálogo
 function servicosCatalogo(){
@@ -703,7 +703,7 @@ function rotuloPapel(s){
   const p=postoDe(s);
   return (p && p.rotulo) || s.papel;
 }
-function nomeSetor(s){ const st=setorDe(s); return st?st.nome:(s.setor||''); }
+function nomeSetor(s){ const stx=setorDe(s); return stx?stx.nome:(s.setor||''); }
 function descS(s){ return fmtD(s.data)+' · '+nomeSetor(s)+' · '+s.turno+' · '+rotuloPapel(s)+' · escalado: '+s.medico; }
 
 /* ---------- login individual (Supabase Auth) ---------- */
@@ -1095,7 +1095,7 @@ function escalaView(){
   const barraCoord = user.tipo==='coord' ? `
     <div class="tools">
       <button class="btn pri" onclick="openGerar()">Gerar escala de mês futuro</button>
-      <button class="btn" onclick="openRegras()">Configurar Regras de Escala${REGRAS.filter(r=>r.ativa).length?` (${REGRAS.filter(r=>r.ativa).length})`:''}</button>
+      <button class="btn" onclick="openRegras()">Configurar Regras de Escala${(()=>{const a=meusSetores();const n=REGRAS.filter(r=>r.ativa&&a.includes(r.setor)).length;return n?` (${n})`:'';})()}</button>
       <button class="btn" onclick="openFeriados()">3º plantonista nos feriados</button>
     </div>` : '';
   const faixaRasc = (MES.rascunho && user.tipo==='coord') ? `
@@ -1118,7 +1118,7 @@ function escalaView(){
         return opts.map(x=>`<button class="${selSetor===x?'on':''}" onclick="setor('${x}')">${
           x==='TODOS'?'Todos':SETORES[x].nome}</button>`).join('');})()}
     </div></div>
-    ${list.map(card).join('') || '<div class="empty">Sem plantões neste filtro.</div>'}`;
+    ${agruparTurnos(list).map(b=>card(b.pares[0], b)).join('') || '<div class="empty">Sem plantões neste filtro.</div>'}`;
 }
 function pick(d){ selDate=d; render(); }
 function setor(x){ selSetor = (x==='TODOS'||alcancaSetor(x)) ? x : 'TODOS'; render(); }
@@ -1190,7 +1190,12 @@ function meusView(){
     <h2>Próximos</h2>${prox.map(bloco).join('')||'<div class="empty">Nenhum plantão futuro.</div>'}
     <h2>Anteriores</h2>${past.map(bloco).join('')||'<div class="empty">Nada por aqui ainda.</div>'}`;
 }
-function card(s){
+/* Quando o bloco é de 24h, as ações precisam valer para os DOIS turnos:
+   marcar falta só no dia deixaria a noite paga indevidamente. */
+function card(s, bloco){
+  const ids = (bloco && bloco.pares && bloco.pares.length>1)
+    ? bloco.pares.map(p=>p.id).join(',') : s.id;
+  const h24 = !!(bloco && bloco.h24);
   const x = st(s.id), stt = statusOf(s), [cls,lbl] = CHIP[stt];
   const exec = executor(s);
   const tr = x.troca;
@@ -1214,13 +1219,13 @@ function card(s){
   // Médico: pode passar plantão (troca). Coordenação: registrar troca + marcar/desmarcar falta.
   if (stt!=='def'){   // vale também para vagas já preenchidas pela coordenação
     if (user.tipo==='med' && isMine && !dataPassada(s.data))
-      acts += `<button class="btn warn" onclick="openTroca('${s.id}')">Passar plantão</button>`;
+      acts += `<button class="btn warn" onclick="openTroca('${ids}')">Passar plantão</button>`;
     if (user.tipo==='coord'){
-      acts += `<button class="btn warn" onclick="openTroca('${s.id}')">Registrar troca</button>`;
-      acts += `<button class="btn" onclick="liberarVaga('${s.id}')">Liberar vaga</button>`;
+      acts += `<button class="btn warn" onclick="openTroca('${ids}')">Registrar troca</button>`;
+      acts += `<button class="btn" onclick="liberarVaga('${ids}')">Liberar vaga</button>`;
       acts += (stt==='falta')
-        ? `<button class="btn ok" onclick="desmarcarFalta('${s.id}')">Desfazer falta</button>`
-        : `<button class="btn dan" onclick="markFalta('${s.id}')">Marcar falta</button>`;
+        ? `<button class="btn ok" onclick="desmarcarFalta('${ids}')">Desfazer falta</button>`
+        : `<button class="btn dan" onclick="markFalta('${ids}')">Marcar falta</button>`;
     }
   }
   // Internações: SOMENTE Plantonista 1 e 2 da Emergência
@@ -1231,7 +1236,7 @@ function card(s){
   }
   // Definir plantonista: SÓ enquanto a vaga estiver realmente em aberto
   if (stt==='def' && user.tipo==='coord'){
-    acts += `<button class="btn pri" onclick="openTroca('${s.id}')">Definir plantonista</button>`;
+    acts += `<button class="btn pri" onclick="openTroca('${ids}')">Definir plantonista</button>`;
   }
   // Remover posto da escala (coordenação): p/ feriado sem 3º plantonista, por exemplo
   if (user.tipo==='coord' && (stt==='def' || ehTerceiro(s))){
@@ -1259,11 +1264,13 @@ function card(s){
     x.obs ? `Obs: ${x.obs}` : ''
   ].filter(Boolean).join(' · ');
   return `<div class="card">
-    <div class="band ${bandClass(s)}"><span class="d">${s.data.slice(8)}</span><span class="m">${bandLabel(s)}</span></div>
+    <div class="band ${bandClass(s)}"><span class="d">${s.data.slice(8)}</span>
+      <span class="m">${h24?'24h':bandLabel(s)}</span></div>
     <div class="body">
       <div class="top"><span class="med">${exec}</span><span class="chip ${cls}">${lbl}</span></div>
       <div class="papel">${nomeSetor(s)} · ${rotuloPapel(s)}${trocado?' · substituindo '+s.medico:''}</div>
-      <div class="hrs">${fmtD(s.data)} (${s.dia}) · <b class="mono">${s.hini}–${s.hfim}</b></div>
+      <div class="hrs">${fmtD(s.data)} (${s.dia}) · <b class="mono">${h24?'07:00–07:00':s.hini+'–'+s.hfim}</b>${
+        h24?' <span style="color:var(--mut)">· 24h, cobre os dois turnos</span>':''}</div>
       ${stamps?`<div class="stamp">${stamps}</div>`:''}
       ${acts?`<div class="acts">${acts}</div>`:''}
     </div></div>`;
@@ -1306,13 +1313,26 @@ function rotuloBloco(b){
                : `12h · ${b.hini}–${b.hfim}`;
 }
 function dataPassada(iso){ const h=new Date(); h.setHours(0,0,0,0); return new Date(iso+'T00:00:00') < h; }
-function markFalta(id){ log('Falta registrada', descS(sh(id))); save(id,{status:'Falta'}); toast('Falta registrada — plantão não contará no financeiro.'); }
-function desmarcarFalta(id){ log('Falta desfeita (volta a realizado)', descS(sh(id))); save(id,{status:''}); toast('Falta desfeita — plantão volta a contar.'); }
+const listaIds = ids => String(ids).split(',').filter(Boolean);
+function markFalta(ids){
+  const L=listaIds(ids); if(!L.length) return;
+  log('Falta registrada'+(L.length>1?' · 24h (os dois turnos)':''), descS(sh(L[0])));
+  L.forEach(id=>save(id,{status:'Falta'}));
+  toast(L.length>1 ? 'Falta registrada nos dois turnos — não contará no financeiro.'
+                   : 'Falta registrada — plantão não contará no financeiro.');
+}
+function desmarcarFalta(ids){
+  const L=listaIds(ids); if(!L.length) return;
+  log('Falta desfeita (volta a realizado)'+(L.length>1?' · 24h (os dois turnos)':''), descS(sh(L[0])));
+  L.forEach(id=>save(id,{status:''}));
+  toast('Falta desfeita — plantão volta a contar.');
+}
 
 let trocaId=null;
-function openTroca(id){
-  trocaId=id;
-  const s = SHIFTS.find(x=>x.id===id);
+function openTroca(ids){
+  trocaId=String(ids);
+  const L=listaIds(ids);
+  const s = SHIFTS.find(x=>x.id===L[0]);
   if(user.tipo==='med' && dataPassada(s.data)){
     const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
     ov.innerHTML=`<div class="sheet">
@@ -1327,7 +1347,7 @@ function openTroca(id){
   const ov = document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML = `<div class="sheet">
     <h3>${s.medico==='A DEFINIR'?'Definir plantonista':(user.tipo==='med'?'Solicitar troca de plantão':'Registrar troca')}</h3>
-    <p>${fmtD(s.data)} · ${s.setor==='EME'?'Emergência':'Internação'} · ${rotuloPapel(s)}${s.setor==='EME'?` · ${s.hini}–${s.hfim}`:''}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
+    <p>${fmtD(s.data)} · ${nomeSetor(s)} · ${rotuloPapel(s)} · ${L.length>1?'<b>24h · os dois turnos</b>':s.hini+'–'+s.hfim}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
     <select id="sub">${escalaveis().filter(m=>m!==executor(s)).map(m=>`<option>${m}</option>`).join('')}</select>
     <input id="obs" placeholder="Motivo / observação (opcional)">
     <div class="row">
@@ -1340,22 +1360,26 @@ function openTroca(id){
 function closeOv(){ const o=document.getElementById('ov'); if(o) o.remove(); if(user) render(); }
 function confirmaTroca(){
   const sub=document.getElementById('sub').value, obs=document.getElementById('obs').value;
-  const s=sh(trocaId);
+  const L=listaIds(trocaId);
+  const s=sh(L[0]);
   const agora=new Date().toLocaleString('pt-BR');
+  const marca = L.length>1 ? ' · 24h (os dois turnos)' : '';
   if (s.medico!=='A DEFINIR' && user.tipo==='med'){
-    log('Troca solicitada → '+sub+(obs?' · motivo: '+obs:''), descS(s));
-    closeOv(); save(trocaId,{troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'pendente'}, obs});
+    log('Troca solicitada → '+sub+marca+(obs?' · motivo: '+obs:''), descS(s));
+    closeOv();
+    L.forEach(i2=>save(i2,{troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'pendente'}, obs}));
     toast('Solicitação enviada — aguardando aceite de '+sub+'.');
   } else {
     const eraVaga = (s.medico==='A DEFINIR');
-    log((eraVaga?'Plantonista definido':'Troca registrada pela coordenação')+' → '+sub+(obs?' · motivo: '+obs:''), descS(s));
+    log((eraVaga?'Plantonista definido':'Troca registrada pela coordenação')+' → '+sub+marca+(obs?' · motivo: '+obs:''), descS(s));
     // CORREÇÃO: grava também 'executor' para que a vaga deixe de constar como pendência
     // e o plantão passe a contar como realizado (e pago) para quem o executou.
-    closeOv(); save(trocaId,{executor:sub, troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'aceita', aceitaTs:agora, aceitoPor:autor(), vista:true}, obs});
+    closeOv();
+    L.forEach(i2=>save(i2,{executor:sub, troca:{para:sub, motivo:obs, por:autor(), ts:agora, status:'aceita', aceitaTs:agora, aceitoPor:autor(), vista:true}, obs}));
     toast('Troca registrada para '+sub+'.');
     // Oferece criar uma regra de repetição a partir deste plantão (só datas futuras)
-    const hojeISO=hojeISO();
-    if(eraVaga && user.tipo==='coord' && s.data>=hojeISO){
+    const hj=hojeISO();
+    if(eraVaga && user.tipo==='coord' && s.data>=hj){
       setTimeout(()=>{
         if(confirm(`${sub} foi definido(a) para ${fmtD(s.data)}.\n\nEsse plantão vai se repetir? (ex.: toda semana no mesmo dia)\n\nOK = criar uma regra de repetição · Cancelar = foi só desta vez.`)){
           openNovaRegra({...s, medico:sub});
@@ -1863,7 +1887,7 @@ function exportIntern(){
 // A folha é por POSTO (não por pessoa): trocas não obrigam a refazer o documento.
 function folhaPostos(){
   const ordemTurno = t => t==='DIA'?0:1;
-  return SHIFTS.filter(s=>{ const st=setorDe(s); return st && st.folha; })
+  return SHIFTS.filter(s=>{ const stx=setorDe(s); return stx && stx.folha; })
     .sort((a,b)=> a.data.localeCompare(b.data) || ordemTurno(a.turno)-ordemTurno(b.turno) || a.papel.localeCompare(b.papel,'pt-BR'));
 }
 function printFolha(){
@@ -1959,9 +1983,9 @@ function parseData(v){
 // A grade de geração sai do catálogo: cada posto × cada turno que ele cobre.
 // Acrescentar um setor ao catálogo já o faz aparecer na geração de escala.
 function gradeDe(sigla){
-  const st=SETORES[sigla]; if(!st || st.natureza==='informativo') return [];
+  const stx=SETORES[sigla]; if(!stx || stx.natureza==='informativo') return [];
   const out=[];
-  (st.postos||[]).forEach(p=>(p.turnos||['DIA']).forEach(tn=>
+  (stx.postos||[]).forEach(p=>(p.turnos||['DIA']).forEach(tn=>
     out.push({setor:sigla, papel:p.papel, turno:tn, soUteis:!!p.soUteis,
               semFeriado:!!p.semFeriado, diario:!!p.diario})));
   // DIA antes de NOITE, na ordem dos postos
@@ -2085,10 +2109,12 @@ function openRegras(){
   document.body.appendChild(ov);
 }
 function listaRegras(){
-  const ativas=REGRAS.filter(r=>r.ativa), inativas=REGRAS.filter(r=>!r.ativa);
+  const alc=meusSetores();
+  const minhas=REGRAS.filter(r=>alc.includes(r.setor));
+  const ativas=minhas.filter(r=>r.ativa), inativas=minhas.filter(r=>!r.ativa);
   if(!REGRAS.length) return '<div class="empty" style="padding:14px">Nenhuma regra cadastrada.</div>';
   const linha = r => `<div class="ocard" style="border-left-color:${r.ativa?'var(--royal)':'var(--line)'}">
-      <div class="ocard-txt"><b>${r.medico}</b> — ${r.setor==='EME'?'Emergência':'Internação'} · ${r.papel==='Plantonista'&&r.setor==='UNI'?'Prescritor(a)':r.papel} · ${r.turno}</div>
+      <div class="ocard-txt"><b>${r.medico}</b> — ${(SETORES[r.setor]||{}).nome||r.setor} · ${rotuloPapel(r)} · ${r.turno}</div>
       <div class="ocard-meta">${rotuloRegra(r)} · de ${fmtD(r.inicio)}${r.fim?' até '+fmtD(r.fim):' (sem data final)'}</div>
       <div class="ocard-meta">criada por ${r.criadoPor} em ${r.criadoEm}${r.ativa?'':' · <b>ENCERRADA</b>'}</div>
       ${r.ativa?`<button class="btn dan" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="encerrarRegra('${r.id}')">Encerrar regra</button>`:''}
@@ -2098,6 +2124,7 @@ function listaRegras(){
 }
 function encerrarRegra(id){
   const r=REGRAS.find(x=>x.id===id); if(!r) return;
+  if(!alcancaSetor(r.setor)){ toast('Esta regra é de outro setor.'); return; }
   if(!confirm(`Encerrar a regra de ${r.medico} (${rotuloRegra(r)})?\n\nAs escalas já geradas NÃO mudam. A regra deixa de valer para os próximos meses e fica no histórico para auditoria.`)) return;
   r.ativa=false; r.encerradaPor=autor(); r.encerradaEm=new Date().toLocaleString('pt-BR');
   log('Regra de escala encerrada', `${r.medico} · ${rotuloRegra(r)}`);
@@ -2219,9 +2246,13 @@ function openGerar(){
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet">
     <h3>Gerar escala de mês futuro</h3>
-    <p>O app monta a grade completa do mês com todos os postos em <b>A DEFINIR</b>, seguindo a estrutura habitual:
-    2 plantonistas de dia e 2 de noite na Emergência, 3º plantonista nos dias úteis, hospitalista e prescritor na Internação.
-    As <b>regras de escala</b> já cadastradas preenchem automaticamente quem for fixo.</p>
+    <p>O app monta a grade completa do mês com todos os postos em <b>A DEFINIR</b>, seguindo a
+    estrutura habitual de <b>todos os setores</b>: Emergência, Internação, UTI, Ortopedia,
+    Cirurgia Geral e Urologia. As <b>regras de escala</b> já cadastradas preenchem automaticamente
+    quem for fixo.</p>
+    <p style="color:var(--warn);font-size:12.5px"><b>Atenção:</b> a geração vale para o hospital
+    inteiro, não só para o seu setor. Quem gerar primeiro cria a grade de todos — as demais
+    coordenações depois preenchem a parte delas. Combine antes de gerar.</p>
     <p style="color:var(--mut);font-size:12.5px">O mês nasce como <b>rascunho</b> — só a coordenação vê — até você publicar.
     Meses que já têm escala não podem ser gerados (aparecem desabilitados).</p>
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Mês</label>
@@ -2283,7 +2314,8 @@ function salvarEscalaMes(ym){
 }
 // Libera a vaga: tira o nome do médico e devolve o posto como "A DEFINIR".
 // Usado quando o médico fica indisponível e a vaga precisa voltar a ficar aberta.
-function liberarVaga(id){
+function liberarVaga(ids){
+  const L=listaIds(ids); const id=L[0];
   const s=sh(id); if(!s) return;
   const x=st(id);
   if((x.intern&&x.intern.length)||(x.ocor&&x.ocor.length)){
@@ -2291,14 +2323,17 @@ function liberarVaga(id){
   }
   const quem=executor(s);
   if(quem==='A DEFINIR'){ toast('Esta vaga já está em aberto.'); return; }
-  const motivo=(prompt(`Liberar esta vaga?\n\n${fmtD(s.data)} · ${rotuloPapel(s)} · ${s.turno}\nOcupante atual: ${quem}\n\nO nome sai da escala e a vaga fica disponível para outro médico.\n\nMotivo:`, 'Indisponibilidade do médico')||'').trim();
+  const periodo = L.length>1 ? '24h (os dois turnos)' : s.turno;
+  const motivo=(prompt(`Liberar esta vaga?\n\n${fmtD(s.data)} · ${rotuloPapel(s)} · ${periodo}\nOcupante atual: ${quem}\n\nO nome sai da escala e a vaga fica disponível para outro médico.\n\nMotivo:`, 'Indisponibilidade do médico')||'').trim();
   if(!motivo) return;
   const ym=s.data.slice(0,7);
-  save(id,{executor:null, troca:null});              // desfaz a designação
   const arr=(ESCALAS[ym]&&ESCALAS[ym].shifts)||[];
-  const alvo=arr.find(y=>y.id===id);
-  if(alvo) alvo.medico='A DEFINIR';                  // devolve o posto à escala como vaga aberta
-  log('Vaga liberada · '+quem+' saiu · '+motivo, descS(s));
+  L.forEach(i2=>{
+    save(i2,{executor:null, troca:null});            // desfaz a designação
+    const alvo=arr.find(y=>y.id===i2);
+    if(alvo) alvo.medico='A DEFINIR';                // devolve o posto como vaga aberta
+  });
+  log('Vaga liberada · '+quem+' saiu · '+periodo+' · '+motivo, descS(s));
   salvarEscalaMes(ym);
   loadEscala(); render(); toast('Vaga liberada — disponível para outro médico.');
 }
@@ -2405,14 +2440,15 @@ function importarEscala(){
     if(c.length<5){ err.textContent=`Linha ${i+1}: esperadas ao menos 5 colunas separadas por ";" — encontrei ${c.length}.`; err.style.display='block'; return; }
     const data=parseData(c[0]);
     if(!data){ err.textContent=`Linha ${i+1}: data inválida "${c[0]}". Use DD/MM/AAAA ou AAAA-MM-DD.`; err.style.display='block'; return; }
-    const setor=c[1].toUpperCase();
-    if(setor!=='EME'&&setor!=='UNI'){ err.textContent=`Linha ${i+1}: setor "${c[1]}" — use EME ou UNI.`; err.style.display='block'; return; }
+    const sg=c[1].toUpperCase();                  // 'setor' é função do app: não sombrear
+    const validos=setoresDeEscala();
+    if(!validos.includes(sg)){ err.textContent=`Linha ${i+1}: setor "${c[1]}" — use ${validos.join(', ')}.`; err.style.display='block'; return; }
     const turno=c[2].toUpperCase();
     if(turno!=='DIA'&&turno!=='NOITE'){ err.textContent=`Linha ${i+1}: turno "${c[2]}" — use DIA ou NOITE.`; err.style.display='block'; return; }
     if(!c[3]){ err.textContent=`Linha ${i+1}: função vazia.`; err.style.display='block'; return; }
     if(!c[4]){ err.textContent=`Linha ${i+1}: médico vazio — use A DEFINIR para vaga em aberto.`; err.style.display='block'; return; }
     n++;
-    shifts.push({ id:'I'+String(n).padStart(4,'0'), data, dia:wdPT(data), setor, turno,
+    shifts.push({ id:'I'+String(n).padStart(4,'0'), data, dia:wdPT(data), setor:sg, turno,
       papel:c[3], medico:c[4], hini:c[5]||(turno==='NOITE'?'19:00':'07:00'), hfim:c[6]||(turno==='NOITE'?'07:00':'19:00') });
   }
   if(!shifts.length){ err.textContent='Nenhum plantão válido encontrado no arquivo.'; err.style.display='block'; return; }
@@ -2717,9 +2753,9 @@ function faixaDe(s, p, V){
   return ehFDS(s.data) ? 'fds' : 'semana';
 }
 function tipoServico(s){
-  const st=setorDe(s), p=postoDe(s);
-  const cor=(st&&st.cor)||'srv-eme12';
-  if(!p) return {chave: s.setor==='EME'?'eme_outro':'uni_outro', rot:(st&&st.nome)||s.setor, cor};
+  const stx=setorDe(s), p=postoDe(s);
+  const cor=(stx&&stx.cor)||'srv-eme12';
+  if(!p) return {chave: s.setor==='EME'?'eme_outro':'uni_outro', rot:(stx&&stx.nome)||s.setor, cor};
   const V=getValores(s.data);
   const f=faixaDe(s,p,V);
   const chave=(p.srv&&(p.srv[f]||p.srv.unico)) || 'uni_outro';
@@ -2843,7 +2879,7 @@ function finView(){
       <div class="kpi"><div class="v">${linhas.length}</div><div class="l">Médicos com plantão</div></div>
     </div>
     <div class="tools"><button class="btn pri" onclick="exportFin()">Exportar financeiro (CSV)</button>
-      ${user.tipo==='coord'?`<button class="btn" onclick="openValores()">Configurar valores</button>`:''}</div>
+      ${user.diretor?`<button class="btn" onclick="openValores()">Configurar valores</button>`:''}</div>
     <div class="tblwrap"><table>
       <thead><tr><th>Médico</th><th>Plantões</th><th>Internações</th><th>Total</th></tr></thead>
       <tbody>${linhas.map((x,ix)=>`<tr class="finrow" onclick="toggleFin(${ix})" style="cursor:pointer">
@@ -2915,6 +2951,7 @@ function openValores(){
   document.body.appendChild(ov);
 }
 function salvarValores(){
+  if(!user || !user.diretor){ toast('Somente a direção médica altera valores.'); return; }
   const err=document.getElementById('valerr');
   const desde=(document.getElementById('v_desde').value||'').trim();
   if(!desde){ err.textContent='Informe a data a partir da qual os novos valores valem.'; err.style.display='block'; return; }
@@ -3027,6 +3064,7 @@ function abrirRegra(k){
   document.body.appendChild(ov);
 }
 function salvarRegra(k){
+  if(!user || !user.diretor){ toast('Somente a direção médica altera valores.'); return; }
   const e=document.getElementById('rgerr');
   const erro=m=>{ e.textContent=m; e.style.display='block'; };
   const item=CATALOGO_REGRAS.flatMap(([g,is])=>is.map(i=>[g,...i])).find(x=>x[1]===k);
