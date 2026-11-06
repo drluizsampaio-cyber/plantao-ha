@@ -301,6 +301,27 @@ nav button.on::after{content:"";width:18px;height:3px;border-radius:2px;backgrou
   #printArea.onepage h1{font-size:16px}
   #printArea.onepage .pi{font-size:10.5px}
   #printArea.onepage .pgbreak{page-break-before:always;margin-top:6px}
+  /* grade de setor, no modelo que a coordenação da UTI distribui */
+  #printArea.grade{font-family:inherit}
+  #printArea.grade h1{font-size:19px;text-align:center;background:#4A7EBB;color:#fff;
+    padding:9px;margin:0 0 7px;border-radius:3px}
+  #printArea.grade table.g{table-layout:fixed;width:100%;border-collapse:collapse}
+  #printArea.grade .g th{background:#DCE6F2;color:#12205F;font-size:10px;padding:4px 2px;
+    text-align:center;border:1px solid #9CB3D0;text-transform:uppercase;letter-spacing:.04em}
+  #printArea.grade .g td{vertical-align:top;border:1px solid #9CB3D0;height:78px;padding:3px 4px}
+  #printArea.grade .g td.off{background:#F3F5F9}
+  #printArea.grade .dn{font-size:12px;font-weight:800;color:#12205F;margin-bottom:2px}
+  #printArea.grade .dn small{display:block;font-size:7.5px;font-weight:700;color:#B06E0A;line-height:1.1}
+  #printArea.grade .rw{display:flex;gap:3px;font-size:8.5px;line-height:1.35}
+  #printArea.grade .rk{flex:0 0 22px;font-weight:800;color:#5A6B86}
+  #printArea.grade .rv{flex:1;font-weight:600;color:#12205F}
+  #printArea.grade .rv.vago{color:#C0392B}
+  #printArea.grade .rel{margin-top:9px;display:flex;gap:14px;font-size:9px}
+  #printArea.grade .rel div{flex:1}
+  #printArea.grade .rel b{display:block;background:#DCE6F2;padding:3px 5px;margin-bottom:3px;
+    border:1px solid #9CB3D0;font-size:9px}
+  #printArea.grade .rel span{display:block;padding:1.5px 5px;border-bottom:1px dotted #B9C7DA}
+  #printArea.grade .pe{margin-top:8px;font-size:8.5px;color:#5A6B86;text-align:right}
 }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -649,7 +670,7 @@ function render(){
   // Rodapé enxuto: Início mais os destinos de uso diário.
   // Tudo o mais fica a um toque, nos cards da tela inicial.
   const tabs = user.secretaria
-    ? [['hub','Início',icoHome()],['escala','Escala',icoCal()]]
+    ? [['hub','Início',icoHome()],['escala','Escala',icoCal()],['fech','Fechamento',icoDoc()]]
     : user.tipo==='med'
     ? [['hub','Início',icoHome()],['escala','Escala',icoCal()],['agora','Agora',icoNow()],
        ['fin', (meusSetores().length===1 && (SETORES[meusSetores()[0]]||{}).semValorAoMedico)?'Plantões':'A receber', icoCash()]]
@@ -889,7 +910,7 @@ async function salvarMinhaSenha(){
    o rodapé mostra só o uso diário, os cards da tela inicial levam ao resto. */
 function telasPermitidas(){
   if(!user) return ['hub'];
-  if(user.secretaria)     return ['hub','escala'];
+  if(user.secretaria)     return ['hub','escala','fech'];
   if(user.tipo==='med')   return ['hub','agora','escala','meus','ocor','fin'];
   if(user.diretor)        return ['hub','agora','escala','meus','ocor','fech','fin','bi','regras','aud'];
   if(user.tipo==='coord') return ['hub','agora','escala','meus','ocor','fech','fin','aud'];
@@ -917,6 +938,7 @@ function hubView(){
   if(user.secretaria){
     t.push(`<div class="hubsec">Escala sob minha responsabilidade</div><div class="hub">`);
     t.push(tile('🗓️','#E6F7F0','Sobreaviso','Cirurgia Geral · montar e ajustar','escala'));
+    t.push(tile('✅','#E8F5EF','Fechamento','Liberar e confirmar o mês','fech',pend||''));
     t.push(`</div>`);
   }
   else if(user.tipo==='med'){
@@ -1653,6 +1675,56 @@ function irPendencia(tipo){
 
 /* ====== FECHAMENTO EM DUAS ETAPAS (dia 25 parcial · dia 01 final) ====== */
 function fechDoMes(){ return FECH[MES.ym] || {}; }
+/* O fechamento passou a ser POR SETOR: cada coordenação fecha o que é dela.
+   Meses gravados no formato antigo (parcial/final no topo) valem para
+   Emergência e Internação, que eram os únicos setores à época. */
+function fechSetor(sg, ym){
+  const f = FECH[ym || MES.ym] || {};
+  const porSetor = f.setores || {};
+  if(porSetor[sg]) return porSetor[sg];
+  if((sg==='EME' || sg==='UNI') && (f.parcial || f.final))
+    return {parcial:f.parcial, final:f.final, legado:true};
+  return {};
+}
+/* Setores que ESTE usuário fecha. A secretaria fecha a Cirurgia Geral. */
+function setoresQueFecho(){
+  if(!user) return [];
+  if(user.tipo==='adm') return [];            // administrativo confere, não fecha
+  return meusSetores();
+}
+function podeFechar(){ return setoresQueFecho().length>0; }
+/* Estado consolidado dos setores que a pessoa fecha */
+function estadoFech(sgs){
+  const es = sgs.map(sg=>fechSetor(sg));
+  return {
+    todosFinal:   es.length>0 && es.every(x=>x.final),
+    todosParcial: es.length>0 && es.every(x=>x.parcial),
+    algumParcial: es.some(x=>x.parcial),
+    algumFinal:   es.some(x=>x.final),
+    porSetor: sgs.map((sg,i)=>({sg, nome:(SETORES[sg]||{}).nome||sg, ...es[i]}))
+  };
+}
+function gravarFechSetor(sgs, campo, valor){
+  const f = fechDoMes();
+  f.setores = f.setores || {};
+  // Antes de abandonar o formato antigo, migra Emergência e Internação —
+  // senão o primeiro setor novo a fechar apagaria o fechamento delas.
+  if(f.parcial || f.final){
+    ['EME','UNI'].forEach(sg=>{
+      if(!f.setores[sg]) f.setores[sg] = {
+        ...(f.parcial?{parcial:f.parcial}:{}),
+        ...(f.final  ?{final:f.final}:{})
+      };
+    });
+    delete f.parcial; delete f.final;
+  }
+  sgs.forEach(sg=>{
+    f.setores[sg] = {...(f.setores[sg] || {})};
+    if(valor===null) delete f.setores[sg][campo];
+    else f.setores[sg][campo] = valor;
+  });
+  return f;
+}
 // A auditoria clínica do mês libera TODAS as internações daquele mês para pagamento.
 function auditoriaFinalizada(ym){ const f=FECH[ym]||{}; return !!(f.auditoria && f.auditoria.finalizada); }
 // Uma internação entra no pagamento se a auditoria do mês dela foi finalizada
@@ -1664,54 +1736,108 @@ function salvarFech(obj){
     .then(({error})=>{ if(error) toast('Falha ao salvar o fechamento.'); });
 }
 function alteracoesPos(){
-  const f=fechDoMes(); if(!f.parcial) return [];
+  const sgs=setoresQueFecho();
+  const marcos=sgs.map(sg=>fechSetor(sg).parcial).filter(Boolean);
+  if(!marcos.length) return [];
+  const f={parcial: marcos.sort((a,b)=>String(a.iso).localeCompare(String(b.iso)))[0]};
   const ignorar=['Exportação','liberada para conferência','fechado para pagamento','Conferência reaberta','Pagamento reaberto'];
   return AUD.filter(e=> e.iso && e.iso > f.parcial.iso && !ignorar.some(g=>e.acao.includes(g)) );
 }
 function validarParcial(){
-  if(!confirm('Liberar a escala de '+MES.label+' para conferência do administrativo?\n\nO estado atual passa a ser a referência. Qualquer alteração feita depois disto aparecerá destacada para o administrativo.')) return;
-  const f=fechDoMes(), agora=new Date();
-  f.parcial={por:autor(), ts:agora.toLocaleString('pt-BR'), iso:agora.toISOString()};
-  delete f.final;
-  log('Escala liberada para conferência do administrativo', MES.label);
-  salvarFech(f); toast('Conferência liberada ao administrativo.'); render();
+  const sgs=setoresQueFecho();
+  if(!sgs.length){ toast('Seu perfil não fecha escala.'); return; }
+  const nomes=sgs.map(sg=>(SETORES[sg]||{}).nome||sg).join(' e ');
+  if(!confirm(`Liberar a escala de ${nomes} em ${MES.label} para conferência do administrativo?\n\n`+
+    `O estado atual passa a ser a referência. Qualquer alteração feita depois aparecerá destacada.\n\n`+
+    `Os demais setores não são afetados.`)) return;
+  const agora=new Date();
+  const marca={por:autor(), ts:agora.toLocaleString('pt-BR'), iso:agora.toISOString()};
+  const f=gravarFechSetor(sgs,'parcial',marca);
+  sgs.forEach(sg=>{ if(f.setores[sg]) delete f.setores[sg].final; });
+  log('Escala liberada para conferência · '+nomes, MES.label);
+  salvarFech(f); toast('Conferência liberada — '+nomes+'.'); render();
 }
 function validarFinal(){
+  const sgs=setoresQueFecho();
+  if(!sgs.length){ toast('Seu perfil não fecha escala.'); return; }
+  const nomes=sgs.map(sg=>(SETORES[sg]||{}).nome||sg).join(' e ');
+  const e=estadoFech(sgs);
+  if(!e.todosParcial){ toast('Libere a conferência (dia 25) antes de fechar para pagamento.'); return; }
   const p=pendencias();
   const tot=p.internAg.length+p.trocasNV.length+p.defs.length;
-  const aviso = tot? `\n\nATENÇÃO: ainda há ${tot} pendência(s) (internações a validar, trocas a conferir ou vagas a definir).`:'';
-  if(!confirm('Fechar '+MES.label+' para pagamento?'+aviso+'\n\nIsso sinaliza ao administrativo que os dados estão definitivos para solicitar as notas fiscais.')) return;
-  const f=fechDoMes(), agora=new Date();
-  f.final={por:autor(), ts:agora.toLocaleString('pt-BR'), iso:agora.toISOString()};
-  log('Mês fechado para pagamento', MES.label);
-  salvarFech(f); toast('Mês fechado para pagamento.'); render();
+  const aviso = tot? `\n\nATENÇÃO: ainda há ${tot} pendência(s) (internações a auditar, trocas a conferir ou vagas a definir).`:'';
+  if(!confirm(`Fechar ${nomes} em ${MES.label} para pagamento?${aviso}\n\n`+
+    `Isso sinaliza ao administrativo que os dados de ${nomes} estão definitivos para solicitar as notas fiscais.`)) return;
+  const agora=new Date();
+  const f=gravarFechSetor(sgs,'final',{por:autor(), ts:agora.toLocaleString('pt-BR'), iso:agora.toISOString()});
+  log('Fechado para pagamento · '+nomes, MES.label);
+  salvarFech(f); toast(nomes+' fechado para pagamento.'); render();
 }
 function reabrirFech(qual){
-  if(!confirm(qual==='final'?'Reabrir o mês (desfazer o fechamento para pagamento)?':'Reabrir a conferência (desfazer a liberação ao administrativo)?')) return;
-  const f=fechDoMes();
-  if(qual==='final'){ delete f.final; log('Pagamento reaberto pela coordenação', MES.label); }
-  else { delete f.final; delete f.parcial; log('Conferência reaberta pela coordenação', MES.label); }
-  salvarFech(f); toast('Reaberto.'); render();
+  const sgs=setoresQueFecho();
+  if(!sgs.length){ toast('Seu perfil não fecha escala.'); return; }
+  const nomes=sgs.map(sg=>(SETORES[sg]||{}).nome||sg).join(' e ');
+  if(!confirm((qual==='final'
+      ? `Reabrir ${nomes} (desfazer o fechamento para pagamento)?`
+      : `Reabrir a conferência de ${nomes}?`)+'\n\nOs demais setores não são afetados.')) return;
+  let f=gravarFechSetor(sgs,'final',null);
+  if(qual!=='final'){ f=gravarFechSetor(sgs,'parcial',null); }
+  log((qual==='final'?'Pagamento reaberto · ':'Conferência reaberta · ')+nomes, MES.label);
+  salvarFech(f); toast('Reaberto — '+nomes+'.'); render();
 }
 let _verAlt=false;
 function toggleAlt(){ _verAlt=!_verAlt; render(); }
 function painelFechamento(){
-  if(user.tipo!=='coord' && user.tipo!=='adm') return '';
-  const f=fechDoMes(), alt=alteracoesPos();
+  const meus = setoresQueFecho();
+  const vejoTudo = user.tipo==='adm' || user.diretor;
+  if(!meus.length && !vejoTudo) return '';
+  const alt=alteracoesPos();
   const hoje=new Date().getDate();
+  const e = meus.length ? estadoFech(meus) : null;
+
   let estado, cor;
-  if(f.final){ estado=`Fechado para pagamento · ${f.final.ts} por ${f.final.por}`; cor='var(--ok)'; }
-  else if(f.parcial){ estado=`Liberado para conferência · ${f.parcial.ts} por ${f.parcial.por}`; cor='var(--royal)'; }
-  else { estado='Em aberto — aguardando liberação da coordenação'; cor='var(--mut)'; }
-  const dica = (!f.parcial && hoje>=25) ? '<div class="fechdica">É dia '+hoje+': a coordenação já pode liberar a conferência do administrativo.</div>'
-             : (f.parcial && !f.final && hoje<=5) ? '<div class="fechdica">Início do mês: hora do ok final para o administrativo pedir as notas fiscais.</div>' : '';
-  const botoes = user.tipo==='coord' ? `<div class="tools" style="margin:10px 0 0">
-      ${!f.parcial?`<button class="btn pri" onclick="validarParcial()">Liberar conferência (dia 25)</button>`:''}
-      ${f.parcial&&!f.final?`<button class="btn ok" onclick="validarFinal()">Fechar para pagamento (dia 01)</button>`:''}
-      ${f.parcial&&!f.final?`<button class="btn" onclick="reabrirFech('parcial')">Reabrir conferência</button>`:''}
-      ${f.final?`<button class="btn" onclick="reabrirFech('final')">Reabrir mês</button>`:''}
+  if(!meus.length){ estado='Acompanhamento dos setores'; cor='var(--mut)'; }
+  else if(e.todosFinal){
+    const ult = e.porSetor.filter(x=>x.final).sort((a,b)=>String(b.final.iso).localeCompare(String(a.final.iso)))[0];
+    estado=`Fechado para pagamento · ${ult.final.ts} por ${ult.final.por}`; cor='var(--ok)';
+  }
+  else if(e.todosParcial){
+    const ult = e.porSetor.filter(x=>x.parcial).sort((a,b)=>String(b.parcial.iso).localeCompare(String(a.parcial.iso)))[0];
+    estado=`Liberado para conferência · ${ult.parcial.ts} por ${ult.parcial.por}`; cor='var(--royal)';
+  }
+  else if(e.algumParcial){ estado='Parcialmente liberado — veja os setores abaixo'; cor='var(--warn)'; }
+  else { estado='Em aberto — aguardando sua liberação'; cor='var(--mut)'; }
+
+  const dica = !meus.length ? ''
+    : (!e.algumParcial && hoje>=25) ? '<div class="fechdica">É dia '+hoje+': já dá para liberar a conferência do administrativo.</div>'
+    : (e.todosParcial && !e.algumFinal && hoje<=5) ? '<div class="fechdica">Início do mês: hora do ok final para o administrativo pedir as notas fiscais.</div>' : '';
+
+  const botoes = meus.length ? `<div class="tools" style="margin:10px 0 0">
+      ${!e.todosParcial?`<button class="btn pri" onclick="validarParcial()">Liberar conferência (dia 25)</button>`:''}
+      ${e.todosParcial&&!e.todosFinal?`<button class="btn ok" onclick="validarFinal()">Fechar para pagamento (dia 01)</button>`:''}
+      ${e.algumParcial&&!e.algumFinal?`<button class="btn" onclick="reabrirFech('parcial')">Reabrir conferência</button>`:''}
+      ${e.algumFinal?`<button class="btn" onclick="reabrirFech('final')">Reabrir para pagamento</button>`:''}
     </div>` : '';
-  const blocoAlt = f.parcial ? `
+
+  // Quadro de todos os setores: é o que diz ao administrativo quando pedir as notas
+  const todos = setoresDeEscala();
+  const linha = sg => { const x=fechSetor(sg);
+    const [txt,c] = x.final ? ['fechado para pagamento','var(--ok)']
+                  : x.parcial ? ['em conferência','var(--royal)']
+                  : ['em aberto','var(--mut)'];
+    return `<div class="rg-li"><span>${(SETORES[sg]||{}).nome||sg}</span>
+      <span style="color:${c};font-weight:700">${txt}</span></div>`; };
+  const prontos = todos.filter(sg=>fechSetor(sg).final).length;
+  const quadro = vejoTudo ? `
+    <div class="altbox" style="margin-top:10px">
+      <div class="pendtit">Situação por setor — ${prontos} de ${todos.length} fechados</div>
+      ${todos.map(linha).join('')}
+      <div class="fechdica" style="margin-top:8px">${
+        prontos===todos.length
+          ? '<b style="color:var(--ok)">Todos os setores fecharam.</b> Pode solicitar as notas fiscais.'
+          : 'Aguarde o fechamento de todos os setores antes de solicitar as notas fiscais.'}</div>
+    </div>` : '';
+  const blocoAlt = (e && e.algumParcial) ? `
     <div class="altbox">
       <button class="altbtn${alt.length?' on':''}" onclick="toggleAlt()">
         ${alt.length?`⚠️ ${alt.length} alteração(ões) após a liberação`:'Nenhuma alteração após a liberação ✓'} ${alt.length?(_verAlt?'▴':'▾'):''}
@@ -1720,10 +1846,12 @@ function painelFechamento(){
         <div class="altl"><b>${e.acao}</b><div class="altm">${e.detalhe||''}</div>
         <div class="altm">${e.quem} · ${e.ts}</div></div>`).join('')}</div>`:''}
     </div>` : '';
+  const meuDetalhe = (meus.length>1) ? `<div class="altbox" style="margin-top:8px">
+      ${e.porSetor.map(x=>linha(x.sg)).join('')}</div>` : '';
   return `<div class="fechpanel" style="border-left-color:${cor}">
-    <div class="fechtit">Fechamento de ${MES.label}</div>
+    <div class="fechtit">Fechamento de ${MES.label}${meus.length?' · '+meus.map(sg=>(SETORES[sg]||{}).nome||sg).join(' e '):''}</div>
     <div class="fechest" style="color:${cor}">${estado}</div>
-    ${dica}${botoes}${blocoAlt}
+    ${dica}${botoes}${meuDetalhe}${blocoAlt}${quadro}
   </div>`;
 }
 function fechView(){
@@ -1735,7 +1863,7 @@ function fechView(){
   }).filter(r=>r.prev>0);
   const tot = k => rows.reduce((a,r)=>a+r[k],0);
   const p = pendencias();
-  const verOcor = user.tipo==='coord';
+  const verOcor = user.tipo==='coord' && !user.secretaria;
   const totPend = p.internAg.length + p.trocasNV.length + p.defs.length + (verOcor?p.ocor:0);
   const chip = (n,rot,tipo) => `<button class="pendchip${n?' on':''}" ${n?`onclick="irPendencia('${tipo}')"`:'disabled'}>
       <span class="pendn">${n}</span><span class="pendl">${rot}</span></button>`;
@@ -1763,6 +1891,7 @@ function fechView(){
       <button class="btn pri" onclick="exportCSV()">Exportar CSV (contas médicas)</button>
       <button class="btn pri" onclick="exportIntern()">Exportar internações (CSV)</button>
       <button class="btn pri" onclick="printMes()">Escala do mês · 1 página</button>
+      ${meusSetores().map(sg=>`<button class="btn" onclick="printSetor('${sg}')">Imprimir grade · ${SETORES[sg].nome}</button>`).join('')}
       <button class="btn" onclick="printFolha()">Folha de assinatura</button>
       ${user.tipo==='coord'?`<button class="btn" onclick="openImport()">Importar escala</button>`:''}
     </div>
@@ -1807,6 +1936,80 @@ function exportAud(){
 function abrev(n){
   if(!n||n==='A DEFINIR') return '— A DEFINIR —';
   const p=n.split(' '); return p.length>1 ? p[0]+' '+p[p.length-1][0]+'.' : p[0];
+}
+/* Rótulo curto de cada posto na grade impressa */
+function siglaPosto(sg, papel, turno){
+  if(/Diarista/i.test(papel) && sg!=='EME') return 'DIAR';
+  if(sg==='EME'){
+    if(/Diarista|3/.test(papel)) return '3º';
+    const n = /2/.test(papel) ? 'P2' : 'P1';
+    return n + (turno==='NOITE'?'N':'D');
+  }
+  if(sg==='UNI') return /Hospitalista/i.test(papel) ? 'HOSP' : 'PRESC';
+  const stx=SETORES[sg]||{};
+  const temDois = (stx.postos||[]).some(p=>(p.turnos||[]).length>1);
+  if(!temDois) return 'SOB';
+  return turno==='NOITE' ? 'SN' : 'SD';
+}
+function linhasImpressao(sg){
+  const stx=SETORES[sg]; if(!stx) return [];
+  const out=[];
+  (stx.postos||[]).forEach(p=>(p.turnos||['DIA']).forEach(tn=>
+    out.push({papel:p.papel, turno:tn, lbl:siglaPosto(sg,p.papel,tn)})));
+  return out;
+}
+/* Grade do mês de um setor, em paisagem — o formato que a coordenação distribui */
+function printSetor(sg){
+  if(!alcancaSetor(sg)){ toast('Este setor não é seu.'); return; }
+  const stx=SETORES[sg]; if(!stx){ toast('Setor desconhecido.'); return; }
+  log('Impressão da grade do mês · '+st.nome, MES.label);
+  const linhas=linhasImpressao(sg);
+  const wd=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
+  const off=(new Date(MES.y, MES.m-1, 1).getDay()+6)%7;   // seg = 0
+  const isoDe = d => `${MES.y}-${String(MES.m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  let cells=[]; for(let i=0;i<off;i++) cells.push(null);
+  for(let d=1;d<=MES.dias;d++) cells.push(d);
+  while(cells.length%7) cells.push(null);
+  const semanas=[]; for(let i=0;i<cells.length;i+=7) semanas.push(cells.slice(i,i+7));
+
+  const cel = d => {
+    if(!d) return '<td class="off"></td>';
+    const iso=isoDe(d);
+    const doDia=SHIFTS.filter(s=>s.data===iso && s.setor===sg);
+    const fer=feriadoNome(iso);
+    const rows=linhas.map(l=>{
+      const s=doDia.find(x=>x.papel===l.papel && x.turno===l.turno);
+      const quem=s?executor(s):null;
+      return `<div class="rw"><span class="rk">${l.lbl}</span>
+        <span class="rv ${quem&&quem!=='A DEFINIR'?'':'vago'}">${
+          quem && quem!=='A DEFINIR' ? abrev(quem) : (s?'A DEFINIR':'—')}</span></div>`;
+    }).join('');
+    return `<td><div class="dn">${d}${fer?`<small>${fer}</small>`:''}</div>${rows}</td>`;
+  };
+
+  // relação de profissionais, como no modelo
+  const nomes = n => [...new Set(SHIFTS.filter(s=>s.setor===sg && n(s))
+    .map(s=>executor(s)).filter(x=>x && x!=='A DEFINIR'))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const plantonistas = nomes(s=>!/Diarista/i.test(s.papel));
+  const diaristas    = nomes(s=> /Diarista/i.test(s.papel));
+  const coordNome = (FIXOS.find(f=>new RegExp(stx.nome,'i').test(f[1]))||[])[0] || '';
+
+  const pa=document.getElementById('printArea');
+  pa.className='grade';
+  pa.innerHTML=`
+    <h1>Escala ${stx.nome} — ${MES.label}</h1>
+    <table class="g"><thead><tr>${wd.map(w=>`<th>${w}</th>`).join('')}</tr></thead>
+      <tbody>${semanas.map(sem=>`<tr>${sem.map(cel).join('')}</tr>`).join('')}</tbody></table>
+    <div class="rel">
+      <div><b>Relação dos profissionais</b>${plantonistas.map(n=>`<span>${n}</span>`).join('')||'<span>—</span>'}</div>
+      ${diaristas.length?`<div><b>Relação de diaristas</b>${diaristas.map(n=>`<span>${n}</span>`).join('')}</div>`:''}
+      <div><b>Legenda</b>${linhas.map(l=>`<span>${l.lbl} — ${rotuloPapel({setor:sg,papel:l.papel})} ${
+        l.turno==='NOITE'?'(noite)':(linhas.filter(z=>z.papel===l.papel).length>1?'(dia)':'')}</span>`).join('')}
+        ${coordNome?`<span>Coordenação: ${coordNome}</span>`:''}</div>
+    </div>
+    <div class="pe">Gerado em ${new Date().toLocaleString('pt-BR')} por ${autor()} · Plantão HA</div>`;
+  window.print();
+  setTimeout(()=>{ pa.className=''; pa.innerHTML=''; }, 600);
 }
 function printMes(){
   log('Impressão da escala do mês (Emergência + Internação)', MES.label);
