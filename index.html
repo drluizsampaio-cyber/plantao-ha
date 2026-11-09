@@ -1085,9 +1085,9 @@ function cardAgora(b){
       ${podeAbrir?`<div class="acts"><button class="btn" onclick="abrirNaEscala('${b.data}','${b.setor}')">Abrir na escala</button></div>`:''}
     </div></div>`;
 }
-function abrirNaEscala(data, setor){
+function abrirNaEscala(data, sg){     // 'sg', não 'setor': setor() é função do app
   selDate = data;
-  selSetor = vejoSetor(setor) ? setor : 'TODOS';
+  selSetor = vejoSetor(sg) ? sg : 'TODOS';
   tab = 'escala'; render(); window.scrollTo(0,0);
 }
 function agoraView(){
@@ -1857,7 +1857,9 @@ function fechSetor(sg, ym){
 /* Setores que ESTE usuário fecha. A secretaria fecha a Cirurgia Geral. */
 function setoresQueFecho(){
   if(!user) return [];
-  if(user.tipo==='adm') return [];            // administrativo confere, não fecha
+  // Fechar é ato de quem sobe a escala. O administrativo confere e o médico
+  // consulta — nenhum dos dois fecha, mesmo que a tela apareça por engano.
+  if(!(user.tipo==='coord' || user.secretaria)) return [];
   // Urologia é escala automática de valor fixo: não depende de confirmação mensal.
   return meusSetores().filter(sg=>!(SETORES[sg]||{}).autoEscala);
 }
@@ -2147,6 +2149,8 @@ function orientarPagina(modo){
   tag.textContent = `@page{size:A4 ${modo||'portrait'};margin:8mm}`;
 }
 function printSetor(sg){
+  // imprimir a grade é ato de coordenação, secretaria, administrativo ou direção
+  if(!podeImprimirGrade()){ toast('Seu perfil não imprime a grade do mês.'); return; }
   if(!alcancaSetor(sg)){ toast('Este setor não é seu.'); return; }
   const stx=SETORES[sg]; if(!stx){ toast('Setor desconhecido.'); return; }
   log('Impressão da grade do mês · '+stx.nome, MES.label);
@@ -2453,8 +2457,8 @@ function medicoFixoDow(g, iso){
   return g.fixoDow[dow] || g.fixoDow[String(dow)] || null;
 }
 // Quem a regra indica para um posto específico numa data
-function medicoDaRegra(iso, setor, papel, turno){
-  const achou = REGRAS.find(r=> r.ativa && r.setor===setor && r.papel===papel && r.turno===turno && regraCobre(r, iso));
+function medicoDaRegra(iso, sg, papel, turno){     // idem: nada de parâmetro 'setor'
+  const achou = REGRAS.find(r=> r.ativa && r.setor===sg && r.papel===papel && r.turno===turno && regraCobre(r, iso));
   return achou ? achou.medico : null;
 }
 // Gera os plantões de um mês inteiro conforme a grade padrão + regras vigentes
@@ -3874,7 +3878,8 @@ function biMensalView(){
 /* Painel de custos em papel: o que vai anexado ao relatório do corporativo.
    Mesma série e mesmos números da tela — nada é recalculado por fora. */
 function printBI(){
-  if(!podeVerValores()){ toast('Sem acesso ao painel de custos.'); return; }
+  // o painel de custos do hospital é da direção e do administrativo
+  if(!telasPermitidas().includes('bi')){ toast('Sem acesso ao painel de custos.'); return; }
   const h = custosHM();
   const serie = serieCustos(12);
   const recorte = serie.slice(-6);
@@ -3965,6 +3970,8 @@ function printBI(){
   setTimeout(()=>{ pa.className=''; pa.innerHTML=''; }, 600);
 }
 function biView(){
+  if(!telasPermitidas().includes('bi'))
+    return `<div class="rg-box">Sem acesso ao painel de custos.</div>`;
   if(!podeVerValores()) return `<div class="rg-box">Sem acesso a valores de repasse.</div>`;
   const h = custosHM();
   const mx = Math.max(...h.classes.map(c=>c.total), 1);
