@@ -1007,14 +1007,14 @@ function hubView(){
 
   if(user.secretaria){
     t.push(`<div class="hubsec">Escala sob minha responsabilidade</div><div class="hub">`);
-    t.push(tile('🗓️','#E6F7F0','Sobreaviso','Cirurgia Geral · montar e ajustar','escala'));
+    t.push(tile('🗓️','#E6F7F0','Escala','Cirurgia Geral · montar e ajustar','escala'));
     t.push(tile('✅','#E8F5EF','Fechamento','Liberar e confirmar o mês','fech',pend||''));
     t.push(`</div>`);
   }
   else if(user.tipo==='med'){
     t.push(`<div class="hubsec">Meu dia a dia</div><div class="hub">`);
     t.push(tile('🕐','#E8EEFB','Agora','Quem está no hospital e quem acionar','agora'));
-    t.push(tile('📅','#E8EEFB','Minha escala',`${nomeSetores} · ${MES.label}`,'escala'));
+    t.push(tile('📅','#E8EEFB','Escala do hospital',`Todos os setores · ${MES.label}`,'escala'));
     t.push(tile('📋','#E8F5EF','Meus plantões','O que você já cumpriu no mês','meus'));
     t.push(soContagem
       ? tile('📊','#E8F5EF','Resumo do mês','Total cumprido · valores com a coordenação','fin')
@@ -1044,7 +1044,7 @@ function hubView(){
   else if(user.tipo==='coord'){
     t.push(`<div class="hubsec">Coordenação · ${nomeSetores}</div><div class="hub">`);
     t.push(tile('🕐','#E8EEFB','Agora','Quem está no hospital e quem acionar','agora'));
-    t.push(tile('📅','#E8EEFB','Escala','Montar, trocar, liberar vaga','escala'));
+    t.push(tile('📅','#E8EEFB','Escala',`Montar a sua · ver todos os setores`,'escala'));
     t.push(tile('✅','#E8F5EF','Fechamento','Pendências e fechamento do mês','fech',pend||''));
     t.push(tile('💰','#E8F5EF','Financeiro','Repasse da sua equipe','fin'));
     t.push(tile('⚠️','#FFF7E6','Ocorrências','Compilado do mês','ocor',ocorN||''));
@@ -1087,15 +1087,15 @@ function cardAgora(b){
 }
 function abrirNaEscala(data, setor){
   selDate = data;
-  selSetor = alcancaSetor(setor) ? setor : 'TODOS';
+  selSetor = vejoSetor(setor) ? setor : 'TODOS';
   tab = 'escala'; render(); window.scrollTo(0,0);
 }
 function agoraView(){
   const d = todayISO();
   const list = SHIFTS.filter(s=>s.data===d);
   const hoje = new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long'});
-  const alcance = meusSetores();
-  // setores presenciais que a pessoa alcança e que têm plantão hoje
+  const alcance = setoresVisiveis();
+  // todos os setores presenciais com plantão hoje — a tela existe para isso
   const presenciais = alcance.filter(sg=>SETORES[sg] && SETORES[sg].natureza==='plantao');
   const blocos = presenciais.map(sg=>{
     const ls = list.filter(s=>s.setor===sg);
@@ -1121,7 +1121,7 @@ function agoraView(){
       <div class="big">${cap(hoje)}</div>
       <div class="sub">${presenciais.length>1?'Todos os setores':((SETORES[presenciais[0]]||{}).nome||'')}</div>
     </div>
-    ${blocos || '<div class="empty">Nenhum plantão lançado para hoje nos seus setores.</div>'}
+    ${blocos || '<div class="empty">Nenhum plantão lançado para hoje.</div>'}
     <h2>Acionar especialidade</h2>
     <div class="rg-box" style="padding:6px 13px">
       ${sobHoje.map(x=>`<div class="rg-li" style="padding:13px 0">
@@ -1179,7 +1179,7 @@ function escalaView(){
     cal += `<button class="${iso===selDate?'sel':''}${iso===hoje?' today':''}${al}${eh}${estilo}"${multiStyle} onclick="pick('${iso}')" ${fer[iso]?`title="${fer[iso]}"`:''}>${i}</button>`;
   }
   let list = SHIFTS.filter(s=>s.data===selDate);
-  const alcance = meusSetores();
+  const alcance = setoresVisiveis();
   list = list.filter(s=>alcance.includes(s.setor));
   if (selSetor!=='TODOS') list=list.filter(s=>s.setor===selSetor);
   const selLabel = new Date(selDate+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long'});
@@ -1225,7 +1225,7 @@ function escalaView(){
     <h2 style="margin-top:4px">${cap(selLabel)}${ferNome?` <span style="color:var(--danger);font-size:12px;font-weight:700">· ${ferNome}</span>`:''}</h2>
     ${(()=>{ const r=semTerceiroNoDia(selDate); return r?`<div class="semterceiro">Sem 3º plantonista nesta data — ${r.motivo}${editoEscala('EME')?` <button class="btn ok" style="padding:3px 10px;font-size:12px;margin-left:6px" onclick="reabrirTerceiro('${selDate}')">Liberar vaga</button>`:''}</div>`:''; })()}
     <div class="filters"><div class="seg">
-      ${(()=>{const sgs=meusSetores();
+      ${(()=>{const sgs=setoresVisiveis();
         const opts = sgs.length>1 ? ['TODOS',...sgs] : sgs;
         return opts.map(x=>`<button class="${selSetor===x?'on':''}" onclick="setor('${x}')">${
           x==='TODOS'?'Todos':SETORES[x].nome}</button>`).join('');})()}
@@ -1233,7 +1233,7 @@ function escalaView(){
     ${agruparTurnos(list).map(b=>card(b.pares[0], b)).join('') || '<div class="empty">Sem plantões neste filtro.</div>'}`;
 }
 function pick(d){ selDate=d; render(); }
-function setor(x){ selSetor = (x==='TODOS'||alcancaSetor(x)) ? x : 'TODOS'; render(); }
+function setor(x){ selSetor = (x==='TODOS'||vejoSetor(x)) ? x : 'TODOS'; render(); }
 function trocarMes(ym){ if(!ESCALAS[ym]) return; mesAtivo=ym; selSetor='TODOS'; loadEscala();
   // ao trocar de mês, posiciona no dia 1 (ou hoje, se for o mês corrente)
   selDate = (ym===ymAtual()) ? todayISO() : ym+'-01';
@@ -3432,6 +3432,14 @@ function meusSetores(){
   return lista.length ? todos.filter(x=>lista.includes(x)) : todos;
 }
 function alcancaSetor(sg){ return meusSetores().includes(sg); }
+/* ---------- O que todo mundo enxerga ----------
+   Saber quem está no hospital hoje, em qualquer setor, é informação de todos:
+   foi por isso que as outras escalas entraram no app. Agora e Escala mostram
+   o hospital inteiro para qualquer perfil.
+   O que continua restrito é OPERAR — editar escala, fechar o mês, imprimir a
+   grade e ver valores —, e isso segue em meusSetores(). */
+function setoresVisiveis(){ return setoresDeEscala(); }
+function vejoSetor(sg){ return setoresVisiveis().includes(sg); }
 /* ---------- Quem sobe a escala ----------
    Configurar escala e regras de escala existe só para quem sobe a escala, e
    somente no próprio setor: Magno na Emergência e na Internação, Poliana na UTI,
