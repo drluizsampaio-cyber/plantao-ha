@@ -243,6 +243,40 @@ tr:nth-child(even) td{background:#F7F9FD}
 .lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--mut);font-weight:600}
 .lg i{width:10px;height:10px;border-radius:3px;display:inline-block;flex:0 0 auto}
 .binota{font-size:11.5px;color:var(--mut);line-height:1.55;margin:8px 0 0}
+/* regra de repasse do sobreaviso da Cirurgia Geral, exposta */
+.cgbox{border:1.5px solid var(--line);border-radius:14px;padding:14px;margin:16px 0 0;background:#fff}
+.cgtit{font-size:14px;font-weight:800;color:var(--navy);line-height:1.35;margin:0 0 10px}
+.cgpasso{font-size:12.5px;color:var(--ink);line-height:1.55;margin:12px 0 7px;
+  padding-left:10px;border-left:3px solid var(--royal)}
+.cgpasso:first-of-type{margin-top:4px}
+.cgli{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding:5px 0;font-size:13px;border-bottom:1px dashed var(--line)}
+.cgli:last-of-type{border-bottom:0}
+.cgli.tot{border-bottom:0;border-top:1.5px solid var(--line);margin-top:2px;padding-top:7px}
+.cgli span:first-child{color:var(--mut)}
+.cgdias{display:flex;gap:8px;margin:8px 0 2px;flex-wrap:wrap}
+.cgdias>div{flex:1 1 92px;border:1px solid var(--line);border-radius:10px;padding:7px 9px;
+  background:var(--paper)}
+.cgdias span{display:block;font-size:10.5px;color:var(--mut);text-transform:uppercase;
+  letter-spacing:.3px;line-height:1.3}
+.cgdias b{display:block;font-size:14px;color:var(--navy);margin-top:2px}
+.cgfecha{margin-top:12px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.55}
+.cgfecha.ok{background:#E8F6EF;color:#14603F}
+.cgfecha.erro{background:#FDECEA;color:#8E2A20}
+.cgnota{font-size:11.5px;color:var(--mut);line-height:1.55;margin-top:10px}
+/* tabela de pagamento, aberta por função */
+.pgtit{font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;
+  letter-spacing:.4px;margin:14px 2px 6px}
+.pgtab td,.pgtab th{white-space:nowrap}
+.pgtab td:first-child,.pgtab th:first-child{position:sticky;left:0;z-index:1;
+  background:var(--paper);box-shadow:1px 0 0 var(--line);white-space:normal;min-width:120px}
+.pgtab th:first-child{background:var(--ice)}
+.pgtab tr.pgsec td{background:var(--navy);color:#fff;font-weight:800;font-size:11px;
+  text-transform:uppercase;letter-spacing:.5px;position:static;box-shadow:none}
+.pgtab tr.pgsub td{background:var(--ice);font-weight:700;color:var(--navy)}
+.pgtab tr.pgsub td:first-child{background:var(--ice)}
+.pgtab tr.pgtot td{background:#E8ECF5;font-weight:800;border-top:2px solid var(--line)}
+.pgtab tr.pgtot td:first-child{background:#E8ECF5}
 /* na tabela mês a mês o nome do setor fica parado enquanto os meses rolam */
 .tmes td:first-child,.tmes th:first-child{position:sticky;left:0;z-index:1;background:var(--paper);
   box-shadow:1px 0 0 var(--line)}
@@ -641,6 +675,78 @@ function cgRateio(ym, iso){
 function cgValorDia(iso){
   const r = cgRateio(iso.slice(0,7), iso);
   return ehFeriadoRateio(iso) ? r.fer : (ehFDS(iso) ? r.fds : r.base);
+}
+/* Quem pode ver a conta do sobreaviso da Cirurgia Geral: os próprios
+   sobreavisantes, o administrativo, a coordenação do setor e a direção.
+   A secretaria não — ela monta a escala e não vê remuneração. */
+function vejoRegraCG(){
+  if(!user) return false;
+  if(user.secretaria) return false;
+  if(user.diretor || user.tipo==='adm') return true;
+  if(user.tipo==='coord') return meusSetores().includes('CG');
+  return SHIFTS.some(s=>s.setor==='CG' && executor(s)===user.nome);   // sobreavisante
+}
+/* A regra escrita com os números do mês. É a conta que gera o pagamento
+   destas pessoas: ninguém deveria precisar pedir para entender. */
+function cgRegraBox(ym, titulo){
+  const m = ym || MES.ym;
+  const r = cgRateio(m);
+  if(!r.pacote) return '';
+  const dias = diasDoMes(m);
+  const soma = dias.reduce((a,d)=>a+cgValorDia(d),0);
+  const num = (v,c) => Number(v).toLocaleString('pt-BR',
+    {minimumFractionDigits:c===undefined?2:c, maximumFractionDigits:c===undefined?2:c});
+  const pctF = Math.round((r.iF-1)*100), pctH = Math.round((r.iH-1)*100);
+  const label = rotuloMes(m);
+  return `
+  <div class="cgbox">
+    <div class="cgtit">${titulo||'Como é calculado o sobreaviso da Cirurgia Geral'}
+      <span class="q">· ${label}</span></div>
+
+    <div class="cgpasso"><b>1.</b> O serviço tem um <b>pacote mensal fechado</b>, igual
+      todo mês, independente de quantos dias o mês tem.</div>
+    <div class="cgli"><span>Pacote mensal</span><span><b>${BRL(r.pacote)}</b></span></div>
+    ${r.sombra?`<div class="cgli"><span>Sombra</span><span>− ${BRL(r.sombra)}</span></div>`:''}
+    <div class="cgli tot"><span>Valor rateado entre os dias</span><span><b>${BRL(r.rateio)}</b></span></div>
+
+    <div class="cgpasso"><b>2.</b> Os dias do mês não pesam igual. Fim de semana vale
+      <b>${pctF}% a mais</b> que dia útil e feriado nacional vale <b>${pctH}% a mais</b>.</div>
+    <div class="cgli"><span>Dias úteis</span><span>${r.U} × 1,00 = <b>${num(r.U)}</b></span></div>
+    <div class="cgli"><span>Fins de semana</span><span>${r.F} × ${num(r.iF)} = <b>${num(r.F*r.iF)}</b></span></div>
+    <div class="cgli"><span>Feriados</span><span>${r.H} × ${num(r.iH)} = <b>${num(r.H*r.iH)}</b></span></div>
+    <div class="cgli tot"><span>Dias equivalentes</span><span><b>${num(r.equiv)}</b></span></div>
+
+    <div class="cgpasso"><b>3.</b> O valor rateado dividido pelos dias equivalentes dá o
+      <b>valor do dia útil</b>. Os outros dias saem dele.</div>
+    <div class="cgli"><span>${BRL(r.rateio)} ÷ ${num(r.equiv)}</span>
+      <span><b>${BRL(r.base)}</b> <span class="q">por dia útil</span></span></div>
+    <div class="cgdias">
+      <div><span>Dia útil</span><b>${BRL(r.base)}</b></div>
+      <div><span>Fim de semana</span><b>${BRL(r.fds)}</b></div>
+      <div><span>Feriado</span><b>${BRL(r.fer)}</b></div>
+    </div>
+
+    <div class="cgpasso"><b>4.</b> O dia tem <b>dois turnos de 12h</b> — 07h às 19h e 19h
+      às 07h. Cada turno vale <b>metade</b> do valor do dia.</div>
+    <div class="cgdias">
+      <div><span>12h em dia útil</span><b>${BRL(r.base/2)}</b></div>
+      <div><span>12h em fim de semana</span><b>${BRL(r.fds/2)}</b></div>
+      <div><span>12h em feriado</span><b>${BRL(r.fer/2)}</b></div>
+    </div>
+
+    <div class="cgfecha ${Math.abs(soma-r.rateio)<0.01?'ok':'erro'}">
+      ${Math.abs(soma-r.rateio)<0.01
+        ? `<b>Fecha no pacote.</b> A soma dos ${dias.length} dias de ${label} dá
+           ${BRL(soma)} — exatamente o valor rateado. O que muda de um médico para
+           outro é quantos turnos cada um cobriu, nunca o total do serviço.`
+        : `<b>Atenção:</b> a soma dos dias (${BRL(soma)}) não bateu com o valor rateado
+           (${BRL(r.rateio)}). Avise a direção antes de usar este número.`}
+    </div>
+    <div class="cgnota">Feriado aqui é feriado nacional. Ponto facultativo — carnaval,
+      quarta de cinzas, Corpus Christi — conta como dia útil ou como fim de semana,
+      conforme o dia da semana em que cai. Reajuste de pacote vale a partir da data
+      registrada: mês passado não é recalculado.</div>
+  </div>`;
 }
 /* ---------- rateio do sobreaviso de Urologia ----------
    Valor mensal dividido pelos dias de sobreaviso efetivos do mês.
@@ -2031,7 +2137,19 @@ function painelFechamento(){
     ${dica}${botoes}${meuDetalhe}${blocoAlt}${quadro}
   </div>`;
 }
+/* subtotal de um setor dentro da tabela de pagamento */
+function sub_total(pg, sg, vlr){
+  const d = pg.filter(r=>r.sg===sg);
+  const T = k => d.reduce((a,r)=>a+r[k],0);
+  return `<tr class="pgsub"><td colspan="2">Subtotal · ${d[0].setor}</td>
+    <td class="n">${T('prev')}</td><td class="n">${T('ok')}</td>
+    <td class="n">${T('falta')||'–'}</td><td class="n">${T('ui')||'–'}</td>
+    <td class="n">${T('uti')||'–'}</td>
+    ${vlr?`<td class="n">${BRL(T('valor'))}</td>`:''}</tr>`;
+}
 function fechView(){
+  // valores só para quem já os vê em outras telas — a secretaria nunca
+  const vlr = podeVerValores();
   const rows = executantes().map(m=>{
     const mine = SHIFTS.filter(s=>executor(s)===m);
     const c = k => mine.filter(s=>statusOf(s)===k).length;
@@ -2065,7 +2183,8 @@ function fechView(){
       </div>
     </div>
     <div class="tools">
-      <button class="btn pri" onclick="exportCSV()">Exportar CSV (contas médicas)</button>
+      <button class="btn pri" onclick="exportPagamento()">Exportar tabela de pagamento (CSV)</button>
+      <button class="btn pri" onclick="exportCSV()">Exportar plantão a plantão (CSV)</button>
       <button class="btn pri" onclick="exportIntern()">Exportar internações (CSV)</button>
       <button class="btn pri" onclick="printMes()">Escala do mês · 1 página</button>
       <button class="btn" onclick="printFolha()">Folha de assinatura</button>
@@ -2077,9 +2196,35 @@ function fechView(){
         `<button class="btn" onclick="printSetor('${sg}')">${(SETORES[sg]||{}).nome||sg}</button>`).join('')}</div>
     </div>`:''}
     <p style="font-size:12px;color:var(--mut);margin:2px 2px 10px">Escala ativa: <b>${MES.label}</b>${MES.corrente?' (mês atual)':''}${MES.info?` · ${MES.info}`:''}. Meses arquivados: ${mesesDisponiveis().length}.</p>
-    <div class="tblwrap"><table>
-      <thead><tr><th>Médico</th><th>Previsto</th><th>A pagar</th><th>Faltas</th><th>Int. UI ✓</th><th>Int. UTI ✓</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr><td>${r.m}</td><td class="n">${r.prev}</td><td class="n">${r.ok||'–'}</td><td class="n">${r.falta||'–'}</td><td class="n">${r.ui||'–'}</td><td class="n">${r.uti||'–'}</td></tr>`).join('')}</tbody>
+    <div class="pgtit">Tabela de pagamento · ${MES.label}
+      <span class="q">— por médico e função</span></div>
+    <div class="tblwrap"><table class="pgtab">
+      <thead><tr><th>Médico</th><th>Função</th><th>Prev.</th><th>A pagar</th><th>Faltas</th>
+        <th>UI ✓</th><th>UTI ✓</th>${vlr?'<th>Valor</th>':''}</tr></thead>
+      <tbody>${(()=>{
+        const pg = linhasPagamento();
+        if(!pg.length) return `<tr><td colspan="${vlr?8:7}" class="q">Nenhum plantão com executor definido.</td></tr>`;
+        let html='', sgAtual=null;
+        pg.forEach((r,i)=>{
+          if(r.sg!==sgAtual){
+            if(sgAtual!==null) html += sub_total(pg, sgAtual, vlr);
+            sgAtual = r.sg;
+            html += `<tr class="pgsec"><td colspan="${vlr?8:7}">${r.setor}</td></tr>`;
+          }
+          html += `<tr><td>${r.medico}</td><td>${r.funcao}</td>
+            <td class="n">${r.prev}</td><td class="n">${r.ok||'–'}</td>
+            <td class="n">${r.falta?`<b style="color:var(--danger)">${r.falta}</b>`:'–'}</td>
+            <td class="n">${r.ui||'–'}</td><td class="n">${r.uti||'–'}</td>
+            ${vlr?`<td class="n">${BRL(r.valor)}</td>`:''}</tr>`;
+          if(i===pg.length-1) html += sub_total(pg, sgAtual, vlr);
+        });
+        const T = k => pg.reduce((a,r)=>a+r[k],0);
+        html += `<tr class="pgtot"><td colspan="2"><b>Total do mês</b></td>
+          <td class="n"><b>${T('prev')}</b></td><td class="n"><b>${T('ok')}</b></td>
+          <td class="n"><b>${T('falta')||'–'}</b></td><td class="n"><b>${T('ui')||'–'}</b></td>
+          <td class="n"><b>${T('uti')||'–'}</b></td>
+          ${vlr?`<td class="n"><b>${BRL(T('valor'))}</b></td>`:''}</tr>`;
+        return html; })()}</tbody>
     </table></div>
     <p style="font-size:12px;color:var(--mut);margin-top:10px">A pagar = todo plantão escalado, salvo os marcados como falta pela coordenação. Int. UI/UTI ✓ = somente internações <b>validadas pelo administrativo</b>, atribuídas ao executor. Registros aguardando validação não entram nos totais nem nos CSVs — cada internação validada sai no CSV com nº de atendimento, validador e data, para o pagamento extra.</p>`;
 }
@@ -2248,6 +2393,22 @@ function printMes(){
   window.print();
 }
 
+/* O mesmo recorte da tela, em planilha: é o que o contas médicas abre para
+   emitir as notas, uma linha por médico e função. */
+function exportPagamento(){
+  const pg = linhasPagamento();
+  const vlr = podeVerValores();
+  log('Exportação da tabela de pagamento', MES.label+' · '+pg.length+' linha(s)');
+  const head = ['setor','funcao','medico','plantoes_previstos','plantoes_a_pagar','faltas',
+    'internacoes_ui_validadas','internacoes_uti_validadas']
+    .concat(vlr?['valor_R$']:[]).join(';')+'\n';
+  const body = pg.map(r=>[r.setor, r.funcao, r.medico, r.prev, r.ok, r.falta, r.ui, r.uti]
+    .concat(vlr?[r.valor.toFixed(2).replace('.',',')]:[]).join(';')).join('\n');
+  const blob=new Blob(['\uFEFF'+head+body],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`tabela_pagamento_${MES.m}_${MES.y}.csv`; a.click();
+  toast('Tabela de pagamento gerada.');
+}
 function exportCSV(){
   log('Exportação do CSV de fechamento', MES.label);
   const head='data;dia;setor;turno;funcao;medico_escalado;medico_executor;entrada;saida;status;internacoes_ui_validadas;internacoes_uti_validadas;internacoes_aguardando;num_atendimentos_validados;observacao\n';
@@ -3103,6 +3264,32 @@ function delIntern(ix){
   document.getElementById('ilist').innerHTML=internLista(K);
   toast('Internação excluída.');
 }
+/* Uma linha por médico E função. Dois plantonistas da Emergência não são a
+   mesma coisa, nem o 3º plantonista, nem o diarista da UTI, nem o sobreaviso:
+   serviços distintos, valores distintos, notas fiscais distintas. */
+function linhasPagamento(ym){
+  const alc = meusSetores();
+  const lista = (ym && ym!==MES.ym) ? shiftsDoMes(ym) : SHIFTS;
+  const mapa = new Map();
+  lista.filter(s=>alc.includes(s.setor)).forEach(s=>{
+    const quem = executor(s);
+    if(!quem || quem==='A DEFINIR') return;
+    const fn = rotuloPapel(s);
+    const ch = s.setor+'|'+fn+'|'+quem;
+    if(!mapa.has(ch)) mapa.set(ch, {sg:s.setor, setor:nomeSetor(s), funcao:fn, medico:quem,
+      prev:0, ok:0, falta:0, pend:0, ui:0, uti:0, valor:0});
+    const r = mapa.get(ch), stt = statusOf(s);
+    r.prev++;
+    if(stt==='ok') r.ok++; else if(stt==='falta') r.falta++; else r.pend++;
+    if(stt!=='falta') r.valor += valorPlantao(s);
+    (st(s.id).intern||[]).forEach(i=>{ if(i.val){ if(i.u==='UTI') r.uti++; else r.ui++; } });
+  });
+  const ordSg = sg => (SETORES[sg]||{}).ordem || 99;
+  return [...mapa.values()].sort((a,b)=>
+      ordSg(a.sg)-ordSg(b.sg)
+   || a.funcao.localeCompare(b.funcao,'pt-BR')
+   || a.medico.localeCompare(b.medico,'pt-BR'));
+}
 function internDe(m){ // totais de internações VALIDADAS por médico executor (EME)
   let ui=0, uti=0, ag=0;
   SHIFTS.filter(s=>s.setor==='EME' && executor(s)===m).forEach(s=>{
@@ -3289,6 +3476,8 @@ function finView(){
         O repasse da UTI sai em <b>pacote único para a PJ do setor</b>, sujeito a taxa
         administrativa própria. Por isso aqui aparece só a contagem — o valor é tratado
         com a coordenação do serviço.</p></div>`:''}
+      ${d.linhas.some(l=>l.setor==='CG') ? cgRegraBox(MES.ym,
+        'Como é calculado o seu sobreaviso da Cirurgia Geral') : ''}
       <p style="font-size:12px;color:var(--mut);margin-top:10px">Valores sujeitos a conferência da coordenação e do setor de contas médicas. Apenas internações validadas entram no cálculo.</p>`;
   }
   // Coordenação e direção: quem também pega plantão vê o próprio antes da equipe
@@ -3334,7 +3523,8 @@ function finView(){
           </div></td></tr>`).join('')}</tbody>
       <tfoot><tr><td colspan="3"><b>Total geral</b></td><td class="n"><b>${BRL(geral)}</b></td></tr></tfoot>
     </table></div>
-    <p style="font-size:12px;color:var(--mut);margin-top:10px">Toque num médico para ver o detalhamento por tipo de serviço. O CSV exportado traz todas as colunas destrinchadas. Faltas e internações não validadas não entram.</p>`;
+    <p style="font-size:12px;color:var(--mut);margin-top:10px">Toque num médico para ver o detalhamento por tipo de serviço. O CSV exportado traz todas as colunas destrinchadas. Faltas e internações não validadas não entram.</p>
+    ${vejoRegraCG() ? cgRegraBox(MES.ym) : ''}`;
 }
 function exportFin(){
   log('Exportação do financeiro detalhado', MES.label);
