@@ -264,6 +264,16 @@ tr:nth-child(even) td{background:#F7F9FD}
 .cgfecha.ok{background:#E8F6EF;color:#14603F}
 .cgfecha.erro{background:#FDECEA;color:#8E2A20}
 .cgnota{font-size:11.5px;color:var(--mut);line-height:1.55;margin-top:10px}
+/* selo de confidencialidade das ocorrências */
+.ocsig{background:#FFF7E6;border:1px solid #F0D9A8;border-radius:10px;padding:9px 11px;
+  font-size:12px;line-height:1.5;color:#6B4E00;margin:0 0 10px}
+.anonbox{display:flex;gap:10px;align-items:flex-start;margin:10px 0 2px;padding:10px 12px;
+  border:1.5px solid var(--line);border-radius:10px;background:var(--paper);cursor:pointer}
+.sheet .anonbox input[type="checkbox"],.anonbox input[type="checkbox"]{
+  width:20px;min-width:20px;max-width:20px;height:20px;flex:0 0 20px;padding:0;margin:1px 0 0;
+  border-radius:4px;accent-color:var(--royal)}
+.anonbox span{flex:1 1 auto;min-width:0;font-size:13px;line-height:1.5;color:var(--ink)}
+.anonbox i{font-style:normal;font-size:11.5px;color:var(--mut)}
 /* tabela de pagamento, aberta por função */
 .pgtit{font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;
   letter-spacing:.4px;margin:14px 2px 6px}
@@ -888,10 +898,14 @@ function autor(){
           : user.tipo==='adm' ? 'administrativo' : 'médico';
   return `${user.nome} (${p})`;
 }
-function log(acao, detalhe){
-  AUD.unshift({ts:new Date().toLocaleString('pt-BR'), iso:new Date().toISOString(), quem:autor(), acao, detalhe});
+/* `quemForcado` existe por causa da ocorrência anônima: se o nome fosse para a
+   auditoria, o anonimato seria falso — e promessa falsa de anonimato é pior
+   que não oferecer nenhum. */
+function log(acao, detalhe, quemForcado){
+  const quem = quemForcado || autor();
+  AUD.unshift({ts:new Date().toLocaleString('pt-BR'), iso:new Date().toISOString(), quem, acao, detalhe});
   if(!supa) return;          // sem banco, o registro fica só na sessão — nunca derruba a ação
-  supa.from('auditoria').insert({quem:autor(), acao, detalhe})
+  supa.from('auditoria').insert({quem, acao, detalhe})
     .then(({error})=>{ if(error) console.error('auditoria:',error); });
 }
 function rotuloPapel(s){
@@ -1125,7 +1139,7 @@ function hubView(){
     t.push(soContagem
       ? tile('📊','#E8F5EF','Resumo do mês','Total cumprido · valores com a coordenação','fin')
       : tile('💰','#E8F5EF','A receber','Seus plantões e o valor de cada um','fin'));
-    t.push(tile('⚠️','#FFF7E6','Ocorrências','Registrar evento do plantão','ocor'));
+    t.push(tile('⚠️','#FFF7E6','Registrar ocorrência','Vai só para a coordenação e a direção','ocor'));
     t.push(`</div>`);
   }
   else if(user.diretor){
@@ -1138,7 +1152,7 @@ function hubView(){
     t.push(tile('📅','#E8EEFB','Escalas','Acompanhar e imprimir · '+MES.label,'escala'));
     t.push(tile('✅','#E8F5EF','Fechamento','Pendências e fechamento do mês','fech',pend||''));
     t.push(tile('💰','#E8F5EF','Financeiro','Repasse por médico','fin'));
-    t.push(tile('⚠️','#FFF7E6','Ocorrências','Compilado do mês','ocor',ocorN||''));
+    t.push(tile('⚠️','#FFF7E6','Ocorrências','Confidencial · compilado do mês','ocor',ocorN||''));
     t.push(tile('🔍','#EFE8FB','Auditoria','Registro de tudo que foi feito','aud'));
     t.push(`</div>`);
     if(temPlantaoProprio()){
@@ -1153,7 +1167,7 @@ function hubView(){
     t.push(tile('📅','#E8EEFB','Escala',`Montar a sua · ver todos os setores`,'escala'));
     t.push(tile('✅','#E8F5EF','Fechamento','Pendências e fechamento do mês','fech',pend||''));
     t.push(tile('💰','#E8F5EF','Financeiro','Repasse da sua equipe','fin'));
-    t.push(tile('⚠️','#FFF7E6','Ocorrências','Compilado do mês','ocor',ocorN||''));
+    t.push(tile('⚠️','#FFF7E6','Ocorrências',`Confidencial · ${nomeSetores}`,'ocor',ocorN||''));
     t.push(tile('🔍','#EFE8FB','Auditoria','Registro de tudo que foi feito','aud'));
     if(temPlantaoProprio())
       t.push(tile('📋','#E8F5EF','Meus plantões','Seus próprios plantões no mês','meus'));
@@ -1460,11 +1474,18 @@ function card(s, bloco){
   if (souEditor && (stt==='def' || ehTerceiro(s))){
     acts += `<button class="btn dan" onclick="removerPosto('${s.id}')">Remover posto</button>`;
   }
-  // Ocorrências: qualquer plantão (exceto A DEFINIR). Todos visualizam; registra o médico do plantão ou a coord.
-  const O = x.ocor || [];
+  /* Ocorrências: o plantonista registra no plantão dele; a coordenação do setor
+     e a direção leem. Para quem não lê, o botão não mostra quantidade nenhuma —
+     saber que existem três ocorrências já é informação. */
   if (stt!=='def'){
-    const oNovas = O.filter(o=>!o.vista).length;
-    acts += `<button class="btn" onclick="openOcor('${s.id}')">Ocorrências${O.length?` (${O.length})`:''}${(user.tipo==='coord'&&oNovas)?' •':''}</button>`;
+    const leio = vejoOcorrencia(s);
+    if (leio){
+      const O = ocorVisiveisNoPlantao(s.id);          // os dois turnos, sem as anônimas
+      const oNovas = O.filter(z=>!z.o.vista).length;
+      acts += `<button class="btn" onclick="openOcor('${s.id}')">Ocorrências${O.length?` (${O.length})`:''}${oNovas?' •':''}</button>`;
+    } else if (podeAddOcor(s)){
+      acts += `<button class="btn" onclick="openOcor('${s.id}')">Registrar ocorrência</button>`;
+    }
   }
   const nUI=K.filter(i=>i.u==='UI'&&internLiberada(s,i)).length, nUTI=K.filter(i=>i.u==='UTI'&&internLiberada(s,i)).length, nAg=K.filter(i=>!internLiberada(s,i)).length;
   const tUI=K.filter(i=>i.u==='UI').length, tUTI=K.filter(i=>i.u==='UTI').length;
@@ -1714,24 +1735,80 @@ function trocasNaoVistas(){
 
 /* ============ OCORRÊNCIAS ============ */
 // Cada ocorrência: {txt, por, ts, vista} vinculada ao plantão (reg do shift, campo 'ocor' = array)
+/* ---------- Quem LÊ uma ocorrência ----------
+   Só a coordenação do setor em que o plantão aconteceu e a direção médica.
+   O plantonista registra e não lê — nem a sua própria depois de fechar a
+   tela, nem a de ninguém. Administrativo e secretaria não têm acesso.
+   Quem escreve precisa saber disso: é o que faz o relato ser honesto. */
+function vejoOcorrencia(sgOuShift){
+  if(!user) return false;
+  const sg = typeof sgOuShift==='string' ? sgOuShift : (sgOuShift && sgOuShift.setor);
+  if(!sg) return false;
+  if(user.diretor) return true;
+  if(user.tipo==='coord' && !user.secretaria) return meusSetores().includes(sg);
+  return false;
+}
+function leioAlgumaOcorrencia(){
+  return !!user && (user.diretor || (user.tipo==='coord' && !user.secretaria));
+}
+/* Quem pode REGISTRAR num plantão: o próprio plantonista e a coordenação do setor. */
+function podeAddOcor(s){
+  if(!user || !s) return false;
+  if(statusOf(s)==='def') return false;
+  if(user.tipo==='med') return executor(s)===user.nome;
+  return vejoOcorrencia(s);
+}
+function ocorDoMes(){
+  const itens=[];
+  SHIFTS.filter(s=>vejoOcorrencia(s)).forEach(s=>{
+    (st(s.id).ocor||[]).forEach((o,ix)=>itens.push({s,o,ix}));
+  });
+  return itens;
+}
+/* Os dois turnos de um plantão de 24h são dois registros. Uma ocorrência
+   lançada na noite não pode sumir só porque o card mostra o bloco pelo dia. */
+function idsDoBloco(id){
+  const s=sh(id); if(!s) return [id];
+  const irmaos = SHIFTS.filter(x=>x.data===s.data && x.setor===s.setor && x.papel===s.papel);
+  const bl = agruparTurnos(irmaos).find(b=>b.pares.some(p=>p.id===id));
+  return bl ? bl.pares.map(p=>p.id) : [id];
+}
+/* Ocorrência anônima NÃO aparece no contexto do plantão: o cabeçalho do
+   plantão traz data, turno e quem estava escalado — mostrá-la ali entregaria
+   justamente quem pediu para não ser identificado. Ela vive só no compilado
+   da coordenação, com o setor e sem o plantão. */
+function ocorVisiveisNoPlantao(id){
+  const out=[];
+  idsDoBloco(id).forEach(i=>{
+    (st(i).ocor||[]).forEach((o,ix)=>{ if(!o.anon) out.push({o, ix, id:i}); });
+  });
+  return out;
+}
 function ocorrenciasNaoVistas(){
   const dias=new Set();
-  SHIFTS.forEach(s=>{ (st(s.id).ocor||[]).forEach(o=>{ if(!o.vista) dias.add(s.data); }); });
+  SHIFTS.filter(s=>vejoOcorrencia(s)).forEach(s=>{
+    (st(s.id).ocor||[]).forEach(o=>{ if(!o.vista) dias.add(s.data); }); });
   return dias;
 }
 function totalOcorNaoVistas(){
-  let n=0; SHIFTS.forEach(s=>{ (st(s.id).ocor||[]).forEach(o=>{ if(!o.vista) n++; }); }); return n;
+  return ocorDoMes().filter(x=>!x.o.vista).length;
 }
 let ocorId=null;
+let _ocorSessao=[];   // o que a pessoa acabou de registrar nesta abertura da folha
 function openOcor(id){
-  ocorId=id; const s=sh(id);
-  const podeAdd = (user.tipo==='med' && executor(s)===user.nome) || user.tipo==='coord';
+  ocorId=id; _ocorSessao=[]; const s=sh(id);
+  const podeAdd = podeAddOcor(s);
+  const podeLer = vejoOcorrencia(s);
+  if(!podeAdd && !podeLer){ toast('Ocorrências deste plantão são da coordenação do setor.'); return; }
   const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
-    <h3>Ocorrências do plantão</h3>
-    <p>${fmtD(s.data)} (${s.dia}) · ${s.setor==='EME'?'Emergência':'Internação'} · ${s.turno} · ${rotuloPapel(s)} · <b>${executor(s)}</b><br>
-    Registre aqui eventos não habituais do plantão (intercorrências, faltas de insumo, problemas estruturais, casos de destaque). Fica visível a todos os médicos e à coordenação.</p>
-    <div id="olist">${ocorLista(st(id).ocor||[], id)}</div>
+    <h3>${podeLer?'Ocorrências do plantão':'Registrar ocorrência'}</h3>
+    <p>${fmtD(s.data)} (${s.dia}) · ${nomeSetor(s)} · ${s.turno} · ${rotuloPapel(s)} · <b>${executor(s)}</b><br>
+    Registre aqui eventos não habituais do plantão (intercorrências, faltas de insumo, problemas estruturais, casos de destaque).</p>
+    <div class="ocsig">🔒 <b>Quem lê isto:</b> ${podeLer
+      ? 'apenas a coordenação do setor e a direção médica. Nenhum outro plantonista tem acesso.'
+      : 'apenas a coordenação do setor e a direção médica — mais ninguém. Nenhum outro plantonista vê o que você escrever, nem fica sabendo que existe. Depois de fechar esta tela, você também não terá mais acesso a ela.'}</div>
+    <div id="olist">${podeLer ? ocorLista(null, id) : ''}</div>
     <div class="epibox">
       <div class="epitit">Registro no EPIMED</div>
       <p class="epitxt">O EPIMED é a plataforma usada pela instituição para notificar eventos que
@@ -1745,6 +1822,11 @@ function openOcor(id){
     ${podeAdd?`
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Nova ocorrência</label>
     <textarea id="otxt" rows="4" placeholder="Descreva o ocorrido…" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);font-family:inherit;font-size:14px;resize:vertical"></textarea>
+    <label class="anonbox" for="oanon">
+      <input type="checkbox" id="oanon" onchange="toggleAnon()">
+      <span><b>Registrar sem o meu nome</b><br>
+      <i id="oanonx">A ocorrência vai assinada como <b>${autor()}</b>.</i></span>
+    </label>
     <div id="oerr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:6px 0"></div>
     <div class="row">
       <button class="btn" onclick="closeOv()">Fechar</button>
@@ -1754,12 +1836,34 @@ function openOcor(id){
   ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
   document.body.appendChild(ov);
 }
-function ocorLista(K, id){
-  if(!K||!K.length) return '<div class="empty" style="padding:14px">Nenhuma ocorrência registrada neste plantão.</div>';
-  return K.map((o,ix)=>`<div class="ocard">
+/* `só` = apenas os índices registrados nesta abertura da folha (caso do
+   plantonista, que escreve e não lê o histórico). */
+function toggleAnon(){
+  const c=document.getElementById('oanon'), t=document.getElementById('oanonx');
+  if(!c||!t) return;
+  t.innerHTML = c.checked
+    ? `Seu nome não é gravado — nem na ocorrência, nem na auditoria. A coordenação
+       vai ler o texto e saber apenas o <b>setor</b>: a data, o turno e quem estava
+       escalado <b>não aparecem</b>. Por isso, escreva no texto o que for preciso
+       para a coordenação entender o caso. Depois de enviar, nem você consegue
+       apagar.`
+    : `A ocorrência vai assinada como <b>${autor()}</b>, com a data e o turno deste plantão.`;
+}
+/* Sem `so`, mostra o que é visível no contexto do plantão: os dois turnos
+   do bloco de 24h e nada de anônima. Com `so`, só o que a pessoa acabou de
+   registrar nesta abertura da folha. */
+function ocorLista(K, id, so){
+  const idx = so
+    ? (K||[]).map((o,ix)=>({o,ix,id})).filter(x=>so.includes(x.ix))
+    : ocorVisiveisNoPlantao(id);
+  if(!idx.length) return '<div class="empty" style="padding:14px">'
+    + (so ? 'Nada registrado nesta tela ainda.' : 'Nenhuma ocorrência registrada neste plantão.')
+    + '</div>';
+  const s = sh(id);
+  return idx.map(({o,ix,id:oid})=>`<div class="ocard">
     <div class="ocard-txt">${o.txt.replace(/</g,'&lt;')}</div>
     <div class="ocard-meta">${o.por} · ${o.ts}${o.vista?'':' · <span style="color:var(--warn);font-weight:700">novo</span>'}</div>
-    ${(user.tipo==='coord' || (user.tipo==='med' && o.por.startsWith(user.nome)))?`<button class="btn dan" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="delOcor('${id}',${ix})">Excluir</button>`:''}
+    ${(so || vejoOcorrencia(s))?`<button class="btn dan" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="delOcor('${oid||id}',${ix})">Excluir</button>`:''}
   </div>`).join('');
 }
 function addOcor(){
@@ -1767,21 +1871,49 @@ function addOcor(){
   const err=document.getElementById('oerr');
   if(txt.length<3){ err.textContent='Descreva a ocorrência.'; err.style.display='block'; return; }
   const s=sh(ocorId); const K=st(ocorId).ocor||[];
-  const nova={txt, por:autor(), ts:new Date().toLocaleString('pt-BR'), vista:(user.tipo==='coord')};
-  log('Ocorrência registrada', descS(s)+' · '+txt.slice(0,60));
+  if(!podeAddOcor(s)){ toast('Você não registra ocorrência neste plantão.'); return; }
+  const anon = !!(document.getElementById('oanon')||{}).checked;
+  // já nasce vista quando quem registra é a própria coordenação do setor
+  const daCoord = user.tipo==='coord' && !user.diretor && !user.secretaria
+                  && meusSetores().includes(s.setor);
+  const nova={txt, por: anon ? 'Anônimo' : autor(), anon,
+    ts:new Date().toLocaleString('pt-BR'), vista: anon ? false : daCoord};
+  if(anon){
+    // nem a auditoria pode saber quem foi: sem nome, sem data, sem o plantonista
+    log('Ocorrência anônima registrada', nomeSetor(s)+' · '+MES.label, 'Anônimo');
+  } else {
+    log('Ocorrência registrada', descS(s)+' · '+txt.slice(0,60));
+  }
   S[ocorId]={...st(ocorId), ocor:[...K, nova]}; syncReg(ocorId);
+  _ocorSessao.push(K.length);
   document.getElementById('otxt').value='';
-  document.getElementById('olist').innerHTML=ocorLista(st(ocorId).ocor||[], ocorId);
-  toast('Ocorrência registrada.');
+  const cx=document.getElementById('oanon'); if(cx){ cx.checked=false; toggleAnon(); }
+  document.getElementById('olist').innerHTML = vejoOcorrencia(s)
+    ? ocorLista(st(ocorId).ocor||[], ocorId)
+    : ocorLista(st(ocorId).ocor||[], ocorId, _ocorSessao);
+  toast(anon ? 'Registrada de forma anônima e enviada à coordenação do setor.'
+    : vejoOcorrencia(s) ? 'Ocorrência registrada.'
+    : 'Registrada e enviada à coordenação do setor.');
 }
 function delOcor(id,ix){
+  const s0=sh(id);
+  /* Quem registra pode corrigir enquanto a tela está aberta. Depois disso, só a
+     coordenação do setor ou a direção apagam: relato de segurança não pode ser
+     apagado a frio por quem escreveu, nem por quem não tem acesso a ele. */
+  const agora = _ocorSessao.includes(ix);
+  if(!vejoOcorrencia(s0) && !agora){ toast('Esta ocorrência já foi enviada à coordenação.'); return; }
   const K=[...(st(id).ocor||[])]; const rem=K.splice(ix,1)[0];
-  log('Ocorrência excluída', descS(sh(id))+' · '+(rem?rem.txt.slice(0,40):''));
+  if(rem && rem.anon) log('Ocorrência anônima excluída', nomeSetor(sh(id))+' · '+MES.label, 'Anônimo');
+  else log('Ocorrência excluída', descS(sh(id))+' · '+(rem?rem.txt.slice(0,40):''));
   S[id]={...st(id), ocor:K}; syncReg(id);
-  const box=document.getElementById('olist'); if(box) box.innerHTML=ocorLista(K, id);
+  const box=document.getElementById('olist');
+  if(box) box.innerHTML = vejoOcorrencia(sh(id)) ? ocorLista(K,id)
+    : ocorLista(K, id, _ocorSessao.filter(i=>i!==ix).map(i=>i>ix?i-1:i));
+  _ocorSessao=_ocorSessao.filter(i=>i!==ix).map(i=>i>ix?i-1:i);
   render();
 }
 function cienteOcor(id, ix){
+  if(!vejoOcorrencia(sh(id))){ toast('Ocorrência de outro setor.'); return; }
   const K=[...(st(id).ocor||[])];
   if(K[ix]){ K[ix]={...K[ix], vista:true}; }
   log('Ocorrência visualizada pela coordenação', descS(sh(id)));
@@ -1789,14 +1921,17 @@ function cienteOcor(id, ix){
   toast('Ocorrência marcada como vista.');
 }
 function cienteTodasOcor(){
-  SHIFTS.forEach(s=>{ const K=st(s.id).ocor; if(K&&K.some(o=>!o.vista)){ S[s.id]={...st(s.id), ocor:K.map(o=>({...o,vista:true}))}; syncReg(s.id); } });
+  if(!leioAlgumaOcorrencia()) return;
+  SHIFTS.filter(s=>vejoOcorrencia(s)).forEach(s=>{ const K=st(s.id).ocor;
+    if(K&&K.some(o=>!o.vista)){ S[s.id]={...st(s.id), ocor:K.map(o=>({...o,vista:true}))}; syncReg(s.id); } });
   log('Todas as ocorrências marcadas como vistas', MES.label);
   toast('Todas marcadas como vistas.'); render();
 }
 function ocorView(){
-  // compilado do mês ativo, mais recentes primeiro
-  const itens=[];
-  SHIFTS.forEach(s=>{ (st(s.id).ocor||[]).forEach((o,ix)=>{ itens.push({s, o, ix}); }); });
+  // Plantonista não lê ocorrência: a tela dele serve para registrar.
+  if(!leioAlgumaOcorrencia()) return ocorRegistrarView();
+  // compilado do mês ativo, só dos setores que a pessoa coordena
+  const itens = ocorDoMes();
   itens.sort((a,b)=> (a.s.data<b.s.data?1:a.s.data>b.s.data?-1:0));
   const naoVistas = itens.filter(x=>!x.o.vista).length;
   const cabe = `<div class="now-head" style="background:linear-gradient(135deg,#8a5a00,#b8860b)">
@@ -1806,12 +1941,42 @@ function ocorView(){
     </div>`;
   const acaoCoord = (user.tipo==='coord' && naoVistas) ? `<div class="tools"><button class="btn pri" onclick="cienteTodasOcor()">Marcar todas como vistas</button></div>` : '';
   if(!itens.length) return cabe + '<div class="empty">Nenhuma ocorrência registrada neste mês.</div>';
-  const lista = itens.map(x=>`<div class="ocard" style="cursor:pointer" onclick="pick('${x.s.data}');go('escala')">
+  /* A anônima aparece aqui — é o único lugar — e sem o plantão: só o setor.
+     Data, turno e escalado identificariam quem registrou. */
+  const lista = itens.map(x=>`<div class="ocard"${x.o.anon?'':` style="cursor:pointer" onclick="pick('${x.s.data}');go('escala')"`}>
       <div class="ocard-txt">${x.o.txt.replace(/</g,'&lt;')}</div>
-      <div class="ocard-meta">${fmtD(x.s.data)} (${x.s.dia}) · ${x.s.setor==='EME'?'EME':'UNI'} · ${x.s.turno} · ${x.o.por} · ${x.o.ts}${x.o.vista?'':' · <span style="color:var(--warn);font-weight:700">novo</span>'}</div>
-      ${user.tipo==='coord' && !x.o.vista?`<button class="btn ok" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="event.stopPropagation();cienteOcor('${x.s.id}',${x.ix})">Marcar como vista</button>`:''}
+      <div class="ocard-meta">${x.o.anon
+        ? `<b>Anônima</b> · ${nomeSetor(x.s)} · ${MES.label} · sem identificação do plantão`
+        : `${fmtD(x.s.data)} (${x.s.dia}) · ${nomeSetor(x.s)} · ${x.s.turno} · ${x.o.por} · ${x.o.ts}`
+        }${x.o.vista?'':' · <span style="color:var(--warn);font-weight:700">novo</span>'}</div>
+      ${!x.o.vista && leioAlgumaOcorrencia()?`<button class="btn ok" style="padding:4px 10px;font-size:12px;margin-top:6px" onclick="event.stopPropagation();cienteOcor('${x.s.id}',${x.ix})">Marcar como vista</button>`:''}
     </div>`).join('');
-  return cabe + acaoCoord + lista;
+  const aviso = `<div class="ocsig" style="margin:10px 2px 0">🔒 Confidencial: esta tela é da
+    coordenação do setor e da direção médica. Nenhum plantonista tem acesso ao que está aqui.</div>`;
+  return cabe + acaoCoord + lista + aviso;
+}
+/* Tela do plantonista: registrar, sem ler nada. Os plantões dele no mês,
+   do mais recente para o mais antigo. */
+function ocorRegistrarView(){
+  const meus = SHIFTS.filter(s=>executor(s)===user.nome && statusOf(s)!=='def')
+    .sort((a,b)=> a.data<b.data?1:a.data>b.data?-1:0);
+  const cabe = `<div class="now-head" style="background:linear-gradient(135deg,#8a5a00,#b8860b)">
+      <div class="t">Registrar ocorrência</div>
+      <div class="big">${meus.length}</div>
+      <div class="sub">plantão(ões) seus em ${MES.label}</div>
+    </div>
+    <div class="ocsig" style="margin:0 2px 10px">🔒 <b>Quem lê o que você registrar:</b>
+    apenas a coordenação do setor e a direção médica. Nenhum outro plantonista tem acesso,
+    nem fica sabendo que existe. Se preferir, dá para registrar <b>sem o seu nome</b>.</div>`;
+  if(!meus.length) return cabe + '<div class="empty">Você não tem plantões neste mês.</div>';
+  const blocos = agruparTurnos(meus).map(b=>{
+    const s=b.pares[0];
+    return `<div class="ocard" style="cursor:pointer" onclick="openOcor('${s.id}')">
+      <div class="ocard-txt"><b>${fmtD(s.data)}</b> (${s.dia}) · ${nomeSetor(s)} · ${rotuloPapel(s)}
+        · ${b.h24?'24h':s.hini+'–'+s.hfim}</div>
+      <div class="ocard-meta">Toque para registrar uma ocorrência deste plantão</div>
+    </div>`;}).join('');
+  return cabe + blocos;
 }
 
 /* ---------- Fechamento ---------- */
@@ -1932,7 +2097,7 @@ function pendencias(){
     if(x.troca && x.troca.status==='aceita' && !x.troca.vista) trocasNV.push(s);
     if(statusOf(s)==='def') defs.push(s);
   });
-  return {internAg, trocasNV, defs, ocor: totalOcorNaoVistas()};
+  return {internAg, trocasNV, defs, ocor: leioAlgumaOcorrencia()?totalOcorNaoVistas():0};
 }
 function irPendencia(tipo){
   const p=pendencias();
