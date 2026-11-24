@@ -264,6 +264,10 @@ tr:nth-child(even) td{background:#F7F9FD}
 .cgfecha.ok{background:#E8F6EF;color:#14603F}
 .cgfecha.erro{background:#FDECEA;color:#8E2A20}
 .cgnota{font-size:11.5px;color:var(--mut);line-height:1.55;margin-top:10px}
+.geraviso{background:#FFF7E6;border:1px solid #F0D9A8;border-radius:10px;padding:9px 11px;
+  font-size:12.5px;line-height:1.5;color:#6B4E00;margin-bottom:8px}
+.gerok{background:#EEF3FC;border:1px solid #CBD9F2;border-radius:10px;padding:9px 11px;
+  font-size:12.5px;line-height:1.5;color:#22356E}
 /* selo de confidencialidade das ocorrências */
 .ocsig{background:#FFF7E6;border:1px solid #F0D9A8;border-radius:10px;padding:9px 11px;
   font-size:12px;line-height:1.5;color:#6B4E00;margin:0 0 10px}
@@ -993,7 +997,7 @@ function verificarTrocasPendentes(){
   const s = pend[0];                       // mostra uma de cada vez
   const t = st(s.id).troca;
   _trocaPopupAtivo=true;
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet">
     <h3>Você recebeu um pedido de troca</h3>
     <p><b>${t.por||'Um colega'}</b> pediu para passar este plantão para você:<br><br>
@@ -1070,7 +1074,7 @@ async function salvarPrimeiroAcesso(){
   try{ verificarTrocasPendentes(); }catch(ex){}
 }
 function abrirMinhaSenha(){
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet">
     <h3>Alterar minha senha</h3>
     <p>Somente a sua conta (${user.email}) será alterada.</p>
@@ -1314,7 +1318,7 @@ function escalaView(){
       ${sgsEd.includes('EME')?`<button class="btn" onclick="openFeriados()">3º plantonista nos feriados</button>`:''}
     </div>` : '';
   // Direção e administrativo: a ação aqui é imprimir a grade de cada setor.
-  const sgsImp = podeImprimirGrade() ? meusSetores() : [];
+  const sgsImp = podeImprimirGrade() ? setoresVisiveis() : [];
   const barraImp = sgsImp.length ? `
     <div class="imprbox">
       <div class="imprtit">Imprimir a grade do mês</div>
@@ -1571,7 +1575,7 @@ function escolherTurno(ids, titulo, acao){
   const p=L.map(i=>sh(i)).filter(Boolean);
   if(p.length<2){ acao(L); return; }
   _turnoCb=acao; _turnoIds=L;
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet">
     <h3>${titulo}</h3>
     <p>${fmtD(p[0].data)} · ${nomeSetor(p[0])} · ${rotuloPapel(p[0])} · <b>24h</b> ·
@@ -1627,7 +1631,7 @@ function openTroca(ids){
   const L=listaIds(ids);
   const s = SHIFTS.find(x=>x.id===L[0]);
   if(user.tipo==='med' && dataPassada(s.data)){
-    const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+    const ov=novoOverlay();
     ov.innerHTML=`<div class="sheet">
       <h3>Troca em data passada</h3>
       <p>Este plantão é de ${fmtD(s.data)}, uma data já passada. Trocas em datas passadas não podem ser feitas pelo plantonista.<br><br>Procure o coordenador da escala (Magno) para qualquer ajuste retroativo.</p>
@@ -1637,7 +1641,7 @@ function openTroca(ids){
     document.body.appendChild(ov);
     return;
   }
-  const ov = document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov = novoOverlay();
   ov.innerHTML = `<div class="sheet">
     <h3>${s.medico==='A DEFINIR'?'Definir plantonista':(user.tipo==='med'?'Solicitar troca de plantão':'Registrar troca')}</h3>
     <p>${fmtD(s.data)} · ${nomeSetor(s)} · ${rotuloPapel(s)} · ${L.length>1?'<b>24h</b>':s.hini+'–'+s.hfim}${user.tipo==='med'?'<br>O colega escolhido precisará <b>aceitar</b> a troca no app para que ela valha no registro oficial.':''}</p>
@@ -1667,7 +1671,22 @@ function openTroca(ids){
   ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
   document.body.appendChild(ov);
 }
-function closeOv(){ const o=document.getElementById('ov'); if(o) o.remove(); if(user) render(); }
+/* ---------- Uma folha por vez ----------
+   Toda folha usa id="ov". Quando uma folha abre outra — salvar uma regra
+   reabre a lista de regras, por exemplo — as duas ficavam no DOM ao mesmo
+   tempo. getElementById pega a primeira, o clique cai na última, e a tela
+   parece travada até trocar de aba. Daí a regra: criar uma folha remove
+   qualquer outra, e fechar remove todas. */
+function novoOverlay(){
+  document.querySelectorAll('.overlay').forEach(o=>o.remove());
+  const ov=document.createElement('div');
+  ov.className='overlay'; ov.id='ov';
+  return ov;
+}
+function closeOv(){
+  document.querySelectorAll('.overlay').forEach(o=>o.remove());
+  if(user) render();
+}
 function confirmaTroca(){
   const sub=document.getElementById('sub').value, obs=document.getElementById('obs').value;
   const T=listaIds(trocaId);
@@ -1727,10 +1746,18 @@ function cienteTroca(id){
   save(id,{troca:{...x.troca, vista:true}});
   toast('Marcada como vista.');
 }
+/* Cada coordenação pisca só pelas trocas de quem ela coordena. A troca da
+   UTI não é assunto do coordenador da Emergência. A direção vê todas. */
 function trocasNaoVistas(){
-  const dias=new Set();
-  SHIFTS.forEach(s=>{const t=st(s.id).troca; if(t&&t.status==='aceita'&&!t.vista) dias.add(s.data);});
+  const dias=new Set(), alc=meusSetores();
+  SHIFTS.filter(s=>alc.includes(s.setor)).forEach(s=>{
+    const t=st(s.id).troca; if(t&&t.status==='aceita'&&!t.vista) dias.add(s.data);});
   return dias;
+}
+function totalTrocasNaoVistas(){
+  const alc=meusSetores();
+  return SHIFTS.filter(s=>alc.includes(s.setor))
+    .filter(s=>{const t=st(s.id).troca; return t&&t.status==='aceita'&&!t.vista;}).length;
 }
 
 /* ============ OCORRÊNCIAS ============ */
@@ -1800,7 +1827,7 @@ function openOcor(id){
   const podeAdd = podeAddOcor(s);
   const podeLer = vejoOcorrencia(s);
   if(!podeAdd && !podeLer){ toast('Ocorrências deste plantão são da coordenação do setor.'); return; }
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>${podeLer?'Ocorrências do plantão':'Registrar ocorrência'}</h3>
     <p>${fmtD(s.data)} (${s.dia}) · ${nomeSetor(s)} · ${s.turno} · ${rotuloPapel(s)} · <b>${executor(s)}</b><br>
@@ -2355,9 +2382,9 @@ function fechView(){
       <button class="btn" onclick="printFolha()">Folha de assinatura</button>
       ${editaAlgumaEscala()?`<button class="btn" onclick="openImport()">Importar escala</button>`:''}
     </div>
-    ${podeImprimirGrade()&&meusSetores().length?`<div class="imprbox">
+    ${podeImprimirGrade()?`<div class="imprbox">
       <div class="imprtit">Imprimir a grade do mês</div>
-      <div class="tools">${meusSetores().map(sg=>
+      <div class="tools">${setoresVisiveis().map(sg=>
         `<button class="btn" onclick="printSetor('${sg}')">${(SETORES[sg]||{}).nome||sg}</button>`).join('')}</div>
     </div>`:''}
     <p style="font-size:12px;color:var(--mut);margin:2px 2px 10px">Escala ativa: <b>${MES.label}</b>${MES.corrente?' (mês atual)':''}${MES.info?` · ${MES.info}`:''}. Meses arquivados: ${mesesDisponiveis().length}.</p>
@@ -2459,9 +2486,11 @@ function orientarPagina(modo){
   tag.textContent = `@page{size:A4 ${modo||'portrait'};margin:8mm}`;
 }
 function printSetor(sg){
-  // imprimir a grade é ato de coordenação, secretaria, administrativo ou direção
+  /* A grade impressa traz nomes, datas e siglas — nenhum valor. E a escala já
+     é visível a todos dentro do app. Então qualquer coordenação imprime a de
+     qualquer setor: é comum precisar da grade do vizinho para combinar plantão,
+     cobertura e feriado. */
   if(!podeImprimirGrade()){ toast('Seu perfil não imprime a grade do mês.'); return; }
-  if(!alcancaSetor(sg)){ toast('Este setor não é seu.'); return; }
   const stx=SETORES[sg]; if(!stx){ toast('Setor desconhecido.'); return; }
   log('Impressão da grade do mês · '+stx.nome, MES.label);
   orientarPagina('landscape');
@@ -2630,7 +2659,7 @@ function printFolha(){
 /* ---------- Importar escala (coordenação) ---------- */
 function openImport(){
   if(!editaAlgumaEscala()){ toast('Importar escala é da coordenação que sobe a escala.'); return; }
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Importar escala de um novo mês</h3>
     <p>Formato CSV com ponto e vírgula, uma linha por plantão:<br>
@@ -2830,7 +2859,7 @@ function rotuloRegra(r){
 function openRegras(){
   const sgsEd = setoresQueEdito();
   if(!sgsEd.length){ toast('As regras de escala são da coordenação que sobe a escala do setor.'); return; }
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Regras de escala · ${nomesSetores(sgsEd)}</h3>
     <p>Regras fixas preenchem automaticamente os postos quando um mês novo é gerado.
@@ -2922,7 +2951,7 @@ function openNovaRegra(base){
       <button class="btn pri" onclick="salvarNovaRegra()">Salvar regra</button></div>
   </div>`;
   if(ov){ ov.innerHTML=html; }
-  else { const n=document.createElement('div'); n.className='overlay'; n.id='ov'; n.innerHTML=html;
+  else { const n=novoOverlay(); n.innerHTML=html;
     n.addEventListener('click',e=>{ if(e.target===n) closeOv(); }); document.body.appendChild(n); }
   rgToggleDow();
 }
@@ -2989,13 +3018,26 @@ function aplicarRegraFuturo(r){
   return n;
 }
 
+/* Por que esta pessoa não gera escala — dito com todas as letras, em vez de
+   um aviso genérico que não ajuda ninguém a resolver. */
+function porqueNaoGero(){
+  if(!user) return 'Entre no app para gerar escala.';
+  if(user.diretor) return 'A direção acompanha e imprime, mas não monta escala. '
+    + 'Quem gera é a coordenação do setor: Magno (Emergência e Internação), '
+    + 'Poliana (UTI), Breno (Ortopedia) ou Ariana (Cirurgia Geral).';
+  if(user.tipo==='adm') return 'O administrativo confere o fechamento e não monta escala.';
+  if(user.tipo==='med') return 'Montar escala é da coordenação do setor.';
+  if(semSetorDefinido()) return 'Seu cadastro está sem setor definido. Peça à direção para '
+    + 'definir o seu setor no perfil — sem isso o app não sabe qual escala é a sua.';
+  return 'Montar escala é da coordenação que sobe a escala do setor.';
+}
 function openGerar(){
-  if(!editaAlgumaEscala()){ toast('Gerar escala é da coordenação que sobe a escala do setor.'); return; }
+  if(!editaAlgumaEscala()){ toast(porqueNaoGero()); return; }
   const opcoes = proximosMeses(6).map(ym=>{
     const existe = ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length;
-    return `<option value="${ym}" ${existe?'disabled':''}>${rotuloMes(ym)}${existe?' — já existe':''}</option>`;
+    return `<option value="${ym}">${rotuloMes(ym)}${existe?' — já existe':''}</option>`;
   }).join('');
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet">
     <h3>Gerar escala de mês futuro</h3>
     <p>O app monta a grade completa do mês com todos os postos em <b>A DEFINIR</b>, seguindo a
@@ -3005,18 +3047,83 @@ function openGerar(){
     <p style="color:var(--warn);font-size:12.5px"><b>Atenção:</b> a geração vale para o hospital
     inteiro, não só para o seu setor. Quem gerar primeiro cria a grade de todos — as demais
     coordenações depois preenchem a parte delas. Combine antes de gerar.</p>
-    <p style="color:var(--mut);font-size:12.5px">O mês nasce como <b>rascunho</b> — só a coordenação vê — até você publicar.
-    Meses que já têm escala não podem ser gerados (aparecem desabilitados).</p>
+    <p style="color:var(--mut);font-size:12.5px">O mês nasce como <b>rascunho</b> — só a coordenação
+    vê — até você publicar. Mês que já tem escala nunca é sobrescrito: escolhendo um deles, o botão
+    passa a <b>preencher os postos em aberto do seu setor</b> com as suas regras.</p>
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Mês</label>
-    <select id="gerMes">${opcoes}</select>
+    <select id="gerMes" onchange="gerAtualiza()">${opcoes}</select>
+    <div id="gerinfo" style="margin:8px 0 2px"></div>
     <div id="gererr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:6px 0"></div>
     <div class="row">
       <button class="btn" onclick="closeOv()">Cancelar</button>
-      <button class="btn pri" onclick="gerarEscala()">Gerar rascunho</button>
+      <button class="btn pri" id="gerbtn" onclick="gerarEscala()">Gerar rascunho</button>
     </div>
   </div>`;
   ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
   document.body.appendChild(ov);
+  gerAtualiza();
+}
+/* O mês escolhido existe ou não? A folha passa a dizer, e o botão muda de
+   função: gerar o mês novo, ou preencher o que está em aberto no seu setor. */
+function gerAtualiza(){
+  const sel=document.getElementById('gerMes'); const box=document.getElementById('gerinfo');
+  const btn=document.getElementById('gerbtn'); const err=document.getElementById('gererr');
+  if(!sel||!box||!btn) return;
+  if(err){ err.style.display='none'; err.textContent=''; }
+  const ym=sel.value, e=ESCALAS[ym];
+  const existe = e && e.shifts && e.shifts.length;
+  const meus = setoresQueEdito();
+  if(!existe){
+    box.innerHTML=`<div class="gerok">${rotuloMes(ym)} ainda não existe. Gerar cria a grade
+      de <b>todos os setores</b> do hospital de uma vez.</div>`;
+    btn.textContent='Gerar rascunho'; btn.setAttribute('onclick','gerarEscala()');
+    return;
+  }
+  const linhas = meus.map(sg=>{
+    const ls=(e.shifts||[]).filter(x=>x.setor===sg);
+    const ab=ls.filter(x=>x.medico==='A DEFINIR').length;
+    return `<div class="rg-li"><span>${(SETORES[sg]||{}).nome||sg}</span><span>${
+      ab? `<b style="color:var(--warn)">${ab} em aberto</b> de ${ls.length}`
+        : `<b style="color:var(--ok)">completo</b> · ${ls.length} plantões`}</span></div>`;
+  }).join('');
+  const abertos = meus.reduce((a,sg)=>a+(e.shifts||[]).filter(x=>x.setor===sg&&x.medico==='A DEFINIR').length,0);
+  const ativas = REGRAS.filter(r=>r.ativa && meus.includes(r.setor)).length;
+  box.innerHTML=`<div class="geraviso"><b>${rotuloMes(ym)} já existe</b> e a geração nunca
+      sobrescreve mês existente — seria apagar o trabalho de outra coordenação.
+      ${abertos? `Há <b>${abertos} posto(s) em aberto</b> ${meus.length>1?'nos seus setores':'no seu setor'}:
+        dá para preenchê-los com as suas regras, sem tocar em quem já está escalado.`
+      : 'Não há posto em aberto nos seus setores.'}</div>
+    ${linhas}
+    ${ativas?'':`<div class="geraviso" style="margin-top:8px">Você ainda não tem <b>regra de
+      escala ativa</b> cadastrada. Cadastre em “Regras de escala” e volte aqui.</div>`}`;
+  btn.textContent='Preencher com as minhas regras';
+  btn.setAttribute('onclick','preencherComRegras()');
+}
+/* Preenche os postos ainda em aberto do próprio setor, num mês que já existe,
+   usando as regras ativas da pessoa. Não encosta em quem já está escalado,
+   nem em setor alheio, nem em data passada. */
+function preencherComRegras(){
+  const ym=(document.getElementById('gerMes')||{}).value;
+  const err=document.getElementById('gererr');
+  const aviso=m=>{ if(err){ err.textContent=m; err.style.display='block'; } else toast(m); };
+  if(!editaAlgumaEscala()){ aviso(porqueNaoGero()); return; }
+  const e=ESCALAS[ym];
+  if(!e||!e.shifts||!e.shifts.length){ aviso('Este mês ainda não tem escala. Gere o rascunho primeiro.'); return; }
+  const meus=setoresQueEdito();
+  const minhas=REGRAS.filter(r=>r.ativa && meus.includes(r.setor));
+  if(!minhas.length){ aviso('Você não tem regra de escala ativa. Cadastre em “Regras de escala” primeiro.'); return; }
+  const abertos = () => meus.reduce((a,sg)=>
+    a+e.shifts.filter(x=>x.setor===sg && x.medico==='A DEFINIR').length, 0);
+  const antes=abertos();
+  if(!antes){ aviso('Não há posto em aberto nos seus setores em '+rotuloMes(ym)+'.'); return; }
+  let n=0; minhas.forEach(r=>{ n += aplicarRegraFuturo(r); });
+  const depois=abertos();
+  closeOv();
+  if(!n){ toast('Nenhum posto preenchido: as suas regras não cobrem os dias em aberto.'); return; }
+  log('Postos em aberto preenchidos pelas regras',
+      `${rotuloMes(ym)} · ${nomesSetores(meus)} · ${antes-depois} posto(s)`);
+  toast(`${antes-depois} posto(s) preenchido(s) em ${rotuloMes(ym)}.`
+        + (depois? ` Restam ${depois} em aberto.`:' Nenhum posto em aberto restante.'));
 }
 function gerarEscala(){
   if(!editaAlgumaEscala()){ toast('Gerar escala é da coordenação que sobe a escala do setor.'); return; }
@@ -3025,8 +3132,9 @@ function gerarEscala(){
   if(!ym){ err.textContent='Selecione o mês.'; err.style.display='block'; return; }
   // PROTEÇÃO: nunca sobrescrever um mês existente
   if(ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length){
-    err.textContent='Já existe escala para '+rotuloMes(ym)+'. A geração não sobrescreve meses existentes.';
-    err.style.display='block'; return;
+    err.textContent='Já existe escala para '+rotuloMes(ym)+'. A geração não sobrescreve mês existente — '
+      + 'use “Preencher com as minhas regras” para completar os postos em aberto do seu setor.';
+    err.style.display='block'; gerAtualiza(); return;
   }
   const shifts=gerarShiftsDoMes(ym);
   const preenchidos=shifts.filter(s=>s.medico!=='A DEFINIR').length;
@@ -3175,7 +3283,7 @@ function openFeriados(){
       <div class="ocard-txt"><b>${fmtD(iso)}</b> (${wdPT(iso)}) — ${fer[iso]}</div>
       <div class="ocard-meta">${estado}</div>${acao}</div>`;
   }).join('');
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>3º plantonista nos feriados — ${MES.label}</h3>
     <p>Em regra não há 3º plantonista em feriados e fins de semana. Aqui você retira a vaga nas datas em que a posição não será escalada — ficando registrado o motivo — ou libera a vaga num feriado de maior demanda.</p>
@@ -3278,7 +3386,7 @@ function openIntern(id){
   const bloq = bloqueioIntern(s);
   const podeAdd = ((user.tipo==='med' && executor(s)===user.nome) || user.tipo==='coord')
                   && !(bloq && user.tipo==='med');     // médico não lança fora do prazo
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Internações do plantão</h3>
     <p>${fmtD(s.data)} (${s.dia}) · Emergência · ${s.turno} · ${s.papel} · executor: <b>${executor(s)}</b><br>
@@ -3717,7 +3825,7 @@ function openValores(){
   const hoje=hojeISO();
   const V=getValores();
   const hist=historicoValores();
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
     <h3>Configurar valores (R$)</h3>
     <p>Só a coordenação vê e edita. Informe <b>a partir de que data</b> os novos valores passam a valer:
@@ -3881,7 +3989,7 @@ function abrirRegra(k){
   if(!item) return;
   const [grupo,,rot,un,obs]=item;
   const V=getValores(todayISO());
-  const ov=document.createElement('div'); ov.className='overlay'; ov.id='ov';
+  const ov=novoOverlay();
   ov.innerHTML=`<div class="sheet">
     <h3>${grupo} · ${rot}</h3>
     <p style="margin:0 0 10px;font-size:13px;color:var(--mut);line-height:1.5">Valor atual:
