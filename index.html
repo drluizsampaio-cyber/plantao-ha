@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Plantão HA · Hospital Alagoinhas</title>
+<!-- O app é um arquivo só. Sem isto, o celular pode seguir abrindo a cópia
+     guardada e a correção publicada não chega a quem está usando. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="theme-color" content="#12205F">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -434,6 +439,7 @@ const LOGO = "data:image/png;base64," + DB.logo;
 /* ================= CONFIGURAÇÃO DO BANCO (Supabase) =================
    Cole abaixo a Project URL e a chave "anon public" do seu projeto
    (Supabase > Settings > API). Sem isso o app mostra a tela de configuração. */
+const VERSAO = "v23 · 24/11/2026";   // aparece no fim da tela inicial
 const SUPABASE_URL = "https://ezptrpezbjodpdpahukf.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6cHRycGV6YmpvZHBkcGFodWtmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1NTA0MTEsImV4cCI6MjEwMjEyNjQxMX0.fHSXbJtGHq9pfiQMzuIq_NQ59MDydVjpu2SUZlSo9Ug";
 /* ==================================================================== */
@@ -633,11 +639,46 @@ function mesesDisponiveis(){
   return Object.keys(ESCALAS).filter(k=>{
     const e=ESCALAS[k];
     if(!e || !e.shifts || !e.shifts.length) return false;
-    if(e.rascunho && (!user || user.tipo!=='coord')) return false;  // rascunho: só a coordenação vê
-    return true;
+    return shiftsPubl(k, e.shifts).length>0;    // nada visível neste mês: nem aparece
   }).sort();
 }
-function ehRascunho(ym){ return !!(ESCALAS[ym] && ESCALAS[ym].rascunho); }
+/* ---------- Rascunho é por SETOR ----------
+   Cada coordenação é dona da escala do seu setor: gera, publica e refaz
+   sozinha, sem depender de quem criou o mês. Por isso o rascunho não pode ser
+   do mês inteiro — a Ortopedia pode estar em rascunho enquanto a Emergência
+   já está publicada. O formato antigo (rascunho:true, mês todo) continua
+   sendo lido para não quebrar o que já está gravado. */
+function rascDe(e){
+  if(!e) return [];
+  if(e.rascunho===true) return [...new Set((e.shifts||[]).map(s=>s.setor))];
+  return Array.isArray(e.rasc) ? e.rasc.filter(sg=>!!SETORES[sg]) : [];
+}
+function rascSetores(ym){ return rascDe(ESCALAS[ym]); }
+function setorEmRascunho(ym, sg){ return rascSetores(ym).includes(sg); }
+// Rascunho de um setor: vê quem sobe aquela escala, e a direção.
+function vejoRascunho(sg){
+  if(!user) return false;
+  if(user.diretor) return true;
+  return editoEscala(sg);
+}
+function shiftsPubl(ym, arr){
+  const rs=rascSetores(ym);
+  if(!rs.length) return arr||[];
+  return (arr||[]).filter(s=> !rs.includes(s.setor) || vejoRascunho(s.setor));
+}
+// Só o que está publicado vira dinheiro: rascunho não entra em fechamento nem no BI.
+function shiftsFirmes(ym){
+  const e=ESCALAS[ym]; if(!e||!e.shifts) return [];
+  const rs=rascSetores(ym);
+  return rs.length ? e.shifts.filter(s=>!rs.includes(s.setor)) : e.shifts;
+}
+function marcarRascunho(ym, sgs, ligar){
+  const e=ESCALAS[ym]; if(!e) return;
+  let atual = rascSetores(ym);
+  delete e.rascunho;                                 // migra do formato antigo
+  e.rasc = ligar ? [...new Set([...atual, ...sgs])] : atual.filter(sg=>!sgs.includes(sg));
+}
+function ehRascunho(ym){ return rascSetores(ym).length>0; }
 function rotuloMes(ym){ const [y,m]=ym.split('-').map(Number); return MESES[m]+'/'+y; }
 function wdPT(iso){ return ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(iso+'T12:00:00').getDay()]; }
 // Feriados nacionais (fixos + móveis calculados pela Páscoa)
@@ -777,13 +818,14 @@ function uroValorDia(iso){
 function loadEscala(){
   const disp = mesesDisponiveis();
   // define o mês ativo: mantém o já escolhido se ainda existir; senão mês corrente; senão o mais recente disponível
-  if(mesAtivo && ESCALAS[mesAtivo] && ESCALAS[mesAtivo].rascunho && (!user || user.tipo!=='coord')) mesAtivo=null;
+  if(mesAtivo && ESCALAS[mesAtivo] && !shiftsPubl(mesAtivo, ESCALAS[mesAtivo].shifts).length) mesAtivo=null;
   if(!mesAtivo || !ESCALAS[mesAtivo] || !disp.includes(mesAtivo)){
     const hoje = ymAtual();
     mesAtivo = disp.includes(hoje) ? hoje : (disp.length ? disp[disp.length-1] : null);
   }
   const imp = mesAtivo ? ESCALAS[mesAtivo] : null;
-  SHIFTS = (imp && imp.shifts && imp.shifts.length) ? imp.shifts : DB.shifts;
+  const vis = imp ? shiftsPubl(mesAtivo, imp.shifts) : [];
+  SHIFTS = vis.length ? vis : DB.shifts;
   MEDICOS = [...new Set(SHIFTS.map(s=>s.medico).filter(m=>m && m!=='A DEFINIR'))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   // Coordenador(es) também podem ser escalados/substituir, sem deixar de ser coord.
   // COORD_ESCALAVEL guarda o nome do coordenador logado para incluí-lo na lista.
@@ -794,7 +836,8 @@ function loadEscala(){
   const [y,m] = d0.split('-').map(Number);
   MES = { y, m, dias:new Date(y,m,0).getDate(), label:MESES[m]+'/'+y, ym:`${y}-${String(m).padStart(2,'0')}`,
           custom: !!(imp && imp.shifts && imp.shifts.length), info: imp ? imp.info : '',
-          rascunho: !!(imp && imp.rascunho),
+          rasc: mesAtivo ? rascSetores(mesAtivo) : [],
+          rascunho: mesAtivo ? rascSetores(mesAtivo).some(vejoRascunho) : false,
           corrente: (`${y}-${String(m).padStart(2,'0')}`===ymAtual()) };
   // Só inicializa, e sempre dentro do mês ativo: antes do login o app roda com
   // dados de demonstração de outro mês, e o dia escolhido ficava preso lá.
@@ -1188,6 +1231,10 @@ function hubView(){
     t.push(tile('🔍','#EFE8FB','Auditoria','Registro de tudo que foi feito','aud'));
     t.push(`</div>`);
   }
+  // Selo de versão: a direção precisa saber, de bate-pronto, se a correção já
+  // está publicada — sem isso não há como distinguir app antigo de bug novo.
+  t.push(`<div style="text-align:center;color:var(--mut);font-size:11px;margin:16px 0 4px">
+    Plantão HA · ${VERSAO}</div>`);
   return t.join('');
 }
 /* Quadro do Agora: informativo, com 24h num bloco só.
@@ -1329,19 +1376,25 @@ function escalaView(){
   const aviso = semSetorDefinido() ? `
     <div class="semterceiro">Seu cadastro não tem setor definido, por isso você está
     vendo e editando <b>todos os setores</b>. Peça à direção para definir o seu setor.</div>` : '';
-  const faixaRasc = !MES.rascunho ? '' : (sgsEd.length ? `
+  // A faixa de rascunho agora diz DE QUAL SETOR, e o botão publica só o seu.
+  const rascMeus = (MES.rasc||[]).filter(editoEscala);
+  const rascOutros = (MES.rasc||[]).filter(sg=>!editoEscala(sg));
+  const abertosDe = sgs => SHIFTS.filter(s=>sgs.includes(s.setor) && s.medico==='A DEFINIR').length;
+  const faixaRasc = (rascMeus.length ? `
     <div class="rascbar">
-      <div><b>RASCUNHO</b> — esta escala ainda não está visível para a equipe.
-      ${SHIFTS.filter(s=>s.medico==='A DEFINIR').length} posto(s) em aberto.</div>
-      <button class="btn ok" onclick="publicarEscala()">Publicar para a equipe</button>
-    </div>` : `
+      <div><b>RASCUNHO · ${nomesSetores(rascMeus)}</b> — ${rascMeus.length>1?'estas escalas ainda não estão':'esta escala ainda não está'}
+      visível para a equipe. ${abertosDe(rascMeus)} posto(s) em aberto.</div>
+      <button class="btn ok" onclick="publicarEscala()">Publicar ${rascMeus.length>1?'as minhas escalas':'para a equipe'}</button>
+    </div>` : '')
+    + (rascOutros.length ? `
     <div class="rascbar">
-      <div><b>RASCUNHO</b> — esta escala ainda não foi publicada para a equipe.
-      ${SHIFTS.filter(s=>s.medico==='A DEFINIR').length} posto(s) em aberto.
+      <div><b>RASCUNHO · ${nomesSetores(rascOutros)}</b> — ainda não publicada para a equipe.
       Quem publica é a coordenação do setor.</div>
-    </div>`);
-  const faixaPub = (!MES.rascunho && sgsEd.length && MES.ym>ymAtual()) ? `
-    <div style="text-align:center;margin:-2px 0 10px"><button class="btn" style="padding:5px 12px;font-size:12px" onclick="voltarRascunho()">Voltar esta escala para rascunho</button></div>` : '';
+    </div>` : '');
+  const podeDespublicar = sgsEd.filter(sg=>!setorEmRascunho(MES.ym,sg)
+                                       && SHIFTS.some(s=>s.setor===sg));
+  const faixaPub = (podeDespublicar.length && MES.ym>ymAtual()) ? `
+    <div style="text-align:center;margin:-2px 0 10px"><button class="btn" style="padding:5px 12px;font-size:12px" onclick="voltarRascunho()">Voltar ${nomesSetores(podeDespublicar)} para rascunho</button></div>` : '';
   return `
     ${seletor}
     ${aviso}${faixaRasc}${faixaPub}${barraCoord}${barraImp}
@@ -2201,8 +2254,7 @@ function auditoriaFinalizada(ym){ const f=FECH[ym]||{}; return !!(f.auditoria &&
 function internLiberada(s, i){ if(!s||!s.data) return i.val===true; return auditoriaFinalizada(s.data.slice(0,7)) || i.val===true; }
 function salvarFech(obj){
   FECH[MES.ym]=obj;
-  if(supa) supa.from('estado').upsert({chave:'fech:'+MES.ym, valor:obj, atualizado_por:autor()},{onConflict:'chave'})
-    .then(({error})=>{ if(error) toast('Falha ao salvar o fechamento.'); });
+  gravar('fech:'+MES.ym, obj, null, 'Falha ao salvar o fechamento.');
 }
 function alteracoesPos(){
   const sgs=setoresQueFecho();
@@ -2739,7 +2791,7 @@ function gradeDe(sigla){
   const stx=SETORES[sigla]; if(!stx || stx.natureza==='informativo') return [];
   const out=[];
   (stx.postos||[]).forEach(p=>(p.turnos||['DIA']).forEach(tn=>
-    out.push({setor:sigla, papel:p.papel, turno:tn, soUteis:!!p.soUteis,
+    out.push({setor:sigla, papel:p.papel, turno:tn, soUteis:!!p.soUteis, terceiro:!!p.terceiro,
               semFeriado:!!p.semFeriado, diario:!!p.diario, fixoDow:p.fixoDow||null})));
   // DIA antes de NOITE, na ordem dos postos
   return out.sort((a,b)=>(a.turno==='DIA'?0:1)-(b.turno==='DIA'?0:1));
@@ -2817,16 +2869,31 @@ function medicoDaRegra(iso, sg, papel, turno){     // idem: nada de parâmetro '
   return achou ? achou.medico : null;
 }
 // Gera os plantões de um mês inteiro conforme a grade padrão + regras vigentes
-function gerarShiftsDoMes(ym){
-  const shifts=[]; let n=0;
+/* Monta plantões de um mês. Aceita um recorte de setores — é o que permite a
+   cada coordenação gerar só a sua escala, mesmo que o mês já exista por conta
+   de outro setor — e nunca recria posto que a coordenação tirou do dia
+   (3º plantonista suprimido continua suprimido). Os ids não colidem com os
+   plantões que o mês já tenha. */
+function gerarShiftsDoMes(ym, sgs, desde){
+  const shifts=[];
+  const filtro = (Array.isArray(sgs) && sgs.length) ? sgs : null;
+  const usados = new Set(((ESCALAS[ym]||{}).shifts||[]).map(s=>s.id));
+  let n=0;
+  /* O id carrega o setor. Duas coordenações podem gerar o mesmo mês com telas
+     que ainda não se viram; com o setor no id, o plantão de uma nunca ocupa o
+     id do plantão da outra — e o registro de cada plantão fica preso ao dono. */
+  const novoId = sg=>{ let id; do { n++; id=idMes(ym,n,'G'+sg+'-'); } while(usados.has(id));
+                       usados.add(id); return id; };
   diasDoMes(ym).forEach(iso=>{
+    if(desde && iso<=desde) return;                 // não refaz dia que já passou
     GRADE_PADRAO.forEach(g=>{
+      if(filtro && !filtro.includes(g.setor)) return;
       if(g.soUteis && !ehUtil(iso)) return;         // 3º plantonista: só dias úteis
       if(g.semFeriado && feriadoNome(iso)) return;  // Urologia: sem sobreaviso em feriado
-      n++;
+      if(g.terceiro && semTerceiroNoDia(iso)) return;  // posto retirado pela coordenação
       const noite = g.turno==='NOITE';
       shifts.push({
-        id: idMes(ym, n, 'G'),
+        id: novoId(g.setor),
         data: iso, dia: wdPT(iso), setor: g.setor, turno: g.turno, papel: g.papel,
         medico: medicoDaRegra(iso, g.setor, g.papel, g.turno)
                 || medicoFixoDow(g, iso) || 'A DEFINIR',
@@ -2844,11 +2911,58 @@ function proximosMeses(qtd){
   }
   return out;
 }
-/* ---------- Configurar Regras de Escala ---------- */
-function salvarRegras(){
-  if(supa) supa.from('estado').upsert({chave:'regras', valor:REGRAS, atualizado_por:autor()},{onConflict:'chave'})
-    .then(({error})=>{ if(error) toast('Falha ao salvar as regras.'); });
+/* ---------- Gravar no banco ----------
+   O cliente do Supabase é PREGUIÇOSO: a requisição só é disparada quando o
+   builder é "then"-ado. Um upsert escrito sem .then() nunca sai do navegador —
+   a tela muda e o banco não. Três gravações estavam assim (regra aplicada a
+   postos em aberto, posto removido, volta para rascunho) e a alteração se
+   desfazia ao recarregar a página. Agora toda gravação sai daqui, e sempre
+   avisa quando falha, em vez de falhar calada. */
+function gravar(chave, valor, okMsg, errMsg){
+  if(!supa) return Promise.resolve(true);
+  return supa.from('estado')
+    .upsert({chave, valor, atualizado_por:autor()},{onConflict:'chave'})
+    .then(({error})=>{
+      if(error){ console.error('gravar '+chave, error);
+        toast(errMsg || 'Falha ao salvar no banco — a alteração pode se desfazer. Tente de novo.');
+        return false; }
+      if(okMsg) toast(okMsg);
+      return true;
+    });
 }
+/* Um mês é uma linha só no banco, com os plantões de todos os setores dentro.
+   Agora que cada coordenação mexe no mesmo mês, gravar o mês inteiro às cegas
+   apagaria o trabalho de quem gravou enquanto a sua tela estava aberta. Então,
+   antes de gravar, relê a linha e preserva o que é dos outros setores: você
+   grava o seu, e só o seu. */
+function mesclarMes(meu, remoto){
+  if(!remoto || !remoto.shifts) return meu;
+  if(!meu) return remoto;
+  const meus = setoresQueEdito();
+  if(!meus.length) return remoto;                 // quem não sobe escala não grava escala
+  const souDono = sg => meus.includes(sg);
+  const shifts = [...(meu.shifts||[]).filter(s=>souDono(s.setor)),
+                  ...(remoto.shifts||[]).filter(s=>!souDono(s.setor))]
+                 .sort((a,b)=>a.data.localeCompare(b.data));
+  const rasc = [...rascDe(meu).filter(souDono), ...rascDe(remoto).filter(sg=>!souDono(sg))];
+  const out = {...remoto, ...meu, shifts, rasc};
+  delete out.rascunho;                            // migrou para o formato por setor
+  // O 3º plantonista retirado é da Emergência: fica com quem é dono dela.
+  out.semTerceiro = souDono('EME') ? (meu.semTerceiro||[]) : (remoto.semTerceiro||[]);
+  return out;
+}
+function gravarMes(ym, okMsg, errMsg){
+  if(!supa) return Promise.resolve(true);
+  return supa.from('estado').select('valor').eq('chave','escala:'+ym).maybeSingle()
+    .then(({data})=>{
+      if(data && data.valor && data.valor.shifts) ESCALAS[ym]=mesclarMes(ESCALAS[ym], data.valor);
+    })
+    .catch(e=>console.error('releitura de escala:'+ym, e))
+    .then(()=>gravar('escala:'+ym, ESCALAS[ym], okMsg, errMsg))
+    .then(v=>{ if(mesAtivo===ym){ loadEscala(); render(); } return v; });
+}
+/* ---------- Configurar Regras de Escala ---------- */
+function salvarRegras(){ return gravar('regras', REGRAS, null, 'Falha ao salvar as regras.'); }
 function rotuloRegra(r){
   const dows=['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
   let quando = PADROES[r.padrao] || r.padrao;
@@ -3013,7 +3127,7 @@ function aplicarRegraFuturo(r){
       s.medico=r.medico; n++; mesesTocados.add(ym);
     });
   });
-  mesesTocados.forEach(ym=>{ if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'}); });
+  mesesTocados.forEach(ym=>gravarMes(ym));
   if(n){ log('Regra aplicada a postos futuros em aberto', `${r.medico} · ${n} posto(s) · meses: ${[...mesesTocados].map(rotuloMes).join(', ')}`); loadEscala(); }
   return n;
 }
@@ -3033,71 +3147,129 @@ function porqueNaoGero(){
 }
 function openGerar(){
   if(!editaAlgumaEscala()){ toast(porqueNaoGero()); return; }
+  const meus = setoresQueEdito();
   const opcoes = proximosMeses(6).map(ym=>{
-    const existe = ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length;
-    return `<option value="${ym}">${rotuloMes(ym)}${existe?' — já existe':''}</option>`;
+    const e=ESCALAS[ym];
+    const temMeu = !!(e&&e.shifts&&e.shifts.some(s=>meus.includes(s.setor)));
+    return `<option value="${ym}">${rotuloMes(ym)}${temMeu?' — a sua já existe':''}</option>`;
   }).join('');
   const ov=novoOverlay();
-  ov.innerHTML=`<div class="sheet">
-    <h3>Gerar escala de mês futuro</h3>
-    <p>O app monta a grade completa do mês com todos os postos em <b>A DEFINIR</b>, seguindo a
-    estrutura habitual de <b>todos os setores</b>: Emergência, Internação, UTI, Ortopedia,
-    Cirurgia Geral e Urologia. As <b>regras de escala</b> já cadastradas preenchem automaticamente
-    quem for fixo.</p>
-    <p style="color:var(--warn);font-size:12.5px"><b>Atenção:</b> a geração vale para o hospital
-    inteiro, não só para o seu setor. Quem gerar primeiro cria a grade de todos — as demais
-    coordenações depois preenchem a parte delas. Combine antes de gerar.</p>
-    <p style="color:var(--mut);font-size:12.5px">O mês nasce como <b>rascunho</b> — só a coordenação
-    vê — até você publicar. Mês que já tem escala nunca é sobrescrito: escolhendo um deles, o botão
-    passa a <b>preencher os postos em aberto do seu setor</b> com as suas regras.</p>
+  ov.innerHTML=`<div class="sheet" style="max-height:88dvh;overflow-y:auto">
+    <h3>Gerar a escala de ${nomesSetores(meus)}</h3>
+    <p>O app monta a grade do mês <b>só ${meus.length>1?'dos seus setores':'do seu setor'}</b> —
+    ${nomesSetores(meus)} — com os postos em <b>A DEFINIR</b>; as suas <b>regras de escala</b>
+    preenchem quem for fixo. Nasce como <b>rascunho</b>, que só você e a direção veem, até publicar.</p>
+    <p style="color:var(--mut);font-size:12.5px">A escala de cada setor é da sua coordenação: o que
+    você faz aqui <b>não toca na dos outros setores</b>, e não importa quem criou o mês primeiro.</p>
     <label style="font-size:12px;font-weight:700;color:var(--mut)">Mês</label>
     <select id="gerMes" onchange="gerAtualiza()">${opcoes}</select>
     <div id="gerinfo" style="margin:8px 0 2px"></div>
     <div id="gererr" style="display:none;color:var(--danger);font-size:13px;font-weight:600;margin:6px 0"></div>
     <div class="row">
       <button class="btn" onclick="closeOv()">Cancelar</button>
-      <button class="btn pri" id="gerbtn" onclick="gerarEscala()">Gerar rascunho</button>
+      <button class="btn pri" id="gerbtn" onclick="gerarEscala()">Gerar a minha escala</button>
+    </div>
+    <div class="row" id="gerrow2" style="display:none;margin-top:6px">
+      <button class="btn dan" id="gerbtn2" onclick="refazerSetor()">Refazer a minha grade</button>
     </div>
   </div>`;
   ov.addEventListener('click',e=>{ if(e.target===ov) closeOv(); });
   document.body.appendChild(ov);
   gerAtualiza();
 }
-/* O mês escolhido existe ou não? A folha passa a dizer, e o botão muda de
-   função: gerar o mês novo, ou preencher o que está em aberto no seu setor. */
+/* A folha diz, setor por setor, o que existe no mês escolhido — e o botão
+   muda de função conforme isso: gerar a grade do setor que ainda não tem,
+   ou preencher os postos em aberto com as regras. O mês pode já existir por
+   conta de outro setor: isso não bloqueia mais ninguém. */
 function gerAtualiza(){
   const sel=document.getElementById('gerMes'); const box=document.getElementById('gerinfo');
   const btn=document.getElementById('gerbtn'); const err=document.getElementById('gererr');
+  const row2=document.getElementById('gerrow2'); const btn2=document.getElementById('gerbtn2');
   if(!sel||!box||!btn) return;
   if(err){ err.style.display='none'; err.textContent=''; }
-  const ym=sel.value, e=ESCALAS[ym];
-  const existe = e && e.shifts && e.shifts.length;
+  const ym=sel.value, e=ESCALAS[ym]||{};
   const meus = setoresQueEdito();
-  if(!existe){
-    box.innerHTML=`<div class="gerok">${rotuloMes(ym)} ainda não existe. Gerar cria a grade
-      de <b>todos os setores</b> do hospital de uma vez.</div>`;
-    btn.textContent='Gerar rascunho'; btn.setAttribute('onclick','gerarEscala()');
+  const doSetor = sg => (e.shifts||[]).filter(x=>x.setor===sg);
+  const faltam = meus.filter(sg=>!doSetor(sg).length);
+  const tenho  = meus.filter(sg=>doSetor(sg).length);
+  const linhas = meus.map(sg=>{
+    const ls=doSetor(sg);
+    const ab=ls.filter(x=>x.medico==='A DEFINIR').length;
+    const rasc = setorEmRascunho(ym,sg) ? ' · <b style="color:var(--warn)">rascunho</b>' : '';
+    const estado = !ls.length ? '<b style="color:var(--mut)">não existe ainda</b>'
+      : (ab? `<b style="color:var(--warn)">${ab} em aberto</b> de ${ls.length}${rasc}`
+           : `<b style="color:var(--ok)">completa</b> · ${ls.length} plantões${rasc}`);
+    return `<div class="rg-li"><span>${(SETORES[sg]||{}).nome||sg}</span><span>${estado}</span></div>`;
+  }).join('');
+  const abertos = tenho.reduce((a,sg)=>a+doSetor(sg).filter(x=>x.medico==='A DEFINIR').length,0);
+  const ativas = REGRAS.filter(r=>r.ativa && meus.includes(r.setor)).length;
+  const outros = [...new Set((e.shifts||[]).map(s=>s.setor))].filter(sg=>!meus.includes(sg));
+  const nota = outros.length ? `<div class="geraviso" style="margin-top:8px">${rotuloMes(ym)} já
+      tem escala de ${nomesSetores(outros)} — de outra coordenação. Isso <b>não impede</b> você de
+      gerar, publicar ou refazer a sua, e o que você fizer aqui não altera a deles.</div>` : '';
+  if(faltam.length){
+    box.innerHTML=`<div class="gerok"><b>${nomesSetores(faltam)}</b> ainda não ${faltam.length>1?'têm':'tem'}
+      escala em ${rotuloMes(ym)}. Gerar cria ${faltam.length>1?'as grades':'a grade'} só ${faltam.length>1?'desses setores':'desse setor'}.</div>
+      ${linhas}${nota}
+      ${ativas?'':`<div class="geraviso" style="margin-top:8px">Você ainda não tem <b>regra de
+        escala ativa</b> cadastrada — a grade vai nascer toda em A DEFINIR. Dá para cadastrar as
+        regras depois, em “Regras de escala”: elas preenchem os postos em aberto na hora.</div>`}`;
+    btn.textContent='Gerar a escala de '+nomesSetores(faltam);
+    btn.setAttribute('onclick','gerarEscala()');
+    if(row2) row2.style.display='none';
     return;
   }
-  const linhas = meus.map(sg=>{
-    const ls=(e.shifts||[]).filter(x=>x.setor===sg);
-    const ab=ls.filter(x=>x.medico==='A DEFINIR').length;
-    return `<div class="rg-li"><span>${(SETORES[sg]||{}).nome||sg}</span><span>${
-      ab? `<b style="color:var(--warn)">${ab} em aberto</b> de ${ls.length}`
-        : `<b style="color:var(--ok)">completo</b> · ${ls.length} plantões`}</span></div>`;
-  }).join('');
-  const abertos = meus.reduce((a,sg)=>a+(e.shifts||[]).filter(x=>x.setor===sg&&x.medico==='A DEFINIR').length,0);
-  const ativas = REGRAS.filter(r=>r.ativa && meus.includes(r.setor)).length;
-  box.innerHTML=`<div class="geraviso"><b>${rotuloMes(ym)} já existe</b> e a geração nunca
-      sobrescreve mês existente — seria apagar o trabalho de outra coordenação.
-      ${abertos? `Há <b>${abertos} posto(s) em aberto</b> ${meus.length>1?'nos seus setores':'no seu setor'}:
-        dá para preenchê-los com as suas regras, sem tocar em quem já está escalado.`
-      : 'Não há posto em aberto nos seus setores.'}</div>
-    ${linhas}
+  box.innerHTML=`<div class="geraviso"><b>${meus.length>1?'As suas escalas de':'A sua escala de'}
+      ${rotuloMes(ym)} já ${meus.length>1?'existem':'existe'}</b> e gerar de novo não apaga o que
+      está lá. ${abertos? `Há <b>${abertos} posto(s) em aberto</b>: dá para preenchê-los com as
+      suas regras, sem tocar em quem já está escalado.`
+      : 'Não há posto em aberto.'}</div>
+    ${linhas}${nota}
     ${ativas?'':`<div class="geraviso" style="margin-top:8px">Você ainda não tem <b>regra de
       escala ativa</b> cadastrada. Cadastre em “Regras de escala” e volte aqui.</div>`}`;
   btn.textContent='Preencher com as minhas regras';
   btn.setAttribute('onclick','preencherComRegras()');
+  if(row2 && btn2){ row2.style.display='';
+    btn2.textContent='Refazer a grade de '+nomesSetores(meus); }
+}
+/* Refaz a grade do próprio setor num mês que já existe: apaga os postos em
+   aberto dos dias futuros e monta de novo pelas regras atuais. Não encosta em
+   plantão já atribuído, em dia que já passou, nem em setor de outra
+   coordenação — e um posto com internação ou ocorrência registrada bloqueia. */
+function refazerSetor(){
+  const ym=(document.getElementById('gerMes')||{}).value;
+  const err=document.getElementById('gererr');
+  const aviso=m=>{ if(err){ err.textContent=m; err.style.display='block'; } else toast(m); };
+  if(!editaAlgumaEscala()){ aviso(porqueNaoGero()); return; }
+  const e=ESCALAS[ym];
+  if(!e||!e.shifts||!e.shifts.length){ aviso('Este mês ainda não tem escala.'); return; }
+  const meus=setoresQueEdito();
+  const hoje=hojeISO();
+  const meusShifts=e.shifts.filter(s=>meus.includes(s.setor));
+  if(!meusShifts.length){ aviso('Você não tem escala neste mês para refazer.'); return; }
+  const travados=meusShifts.filter(s=>{ const x=st(s.id);
+    return (x.intern&&x.intern.length)||(x.ocor&&x.ocor.length); });
+  if(travados.length){ aviso(`${travados.length} plantão(ões) do seu setor têm internação ou `
+    + 'ocorrência registrada e não podem ser refeitos. Refaça só o que estiver limpo, pelo dia.'); return; }
+  const futuros=meusShifts.filter(s=>s.data>hoje);
+  const comNome=futuros.filter(s=>s.medico!=='A DEFINIR' || st(s.id).executor
+                                || (st(s.id).troca&&st(s.id).troca.status==='aceita'));
+  if(!confirm(`Refazer a grade de ${nomesSetores(meus)} em ${rotuloMes(ym)}?\n\n`
+    + `${futuros.length} plantão(ões) a partir de amanhã serão apagados e montados de novo pelas `
+    + `suas regras atuais.${comNome.length?`\n\nATENÇÃO: ${comNome.length} deles já têm médico `
+    + `definido e o nome vai sair da escala.`:''}\n\nDias que já passaram, outros setores e os `
+    + `registros de plantão (internações, ocorrências, auditoria) não são afetados.`)) return;
+  const idsFora=new Set(futuros.map(s=>s.id));
+  e.shifts = e.shifts.filter(s=>!idsFora.has(s.id));
+  const novos = gerarShiftsDoMes(ym, meus, hoje);
+  e.shifts = [...e.shifts, ...novos].sort((a,b)=>a.data.localeCompare(b.data));
+  marcarRascunho(ym, meus, true);                 // refez: volta a rascunho até publicar
+  closeOv();
+  log('Grade refeita pela coordenação',
+      `${rotuloMes(ym)} · ${nomesSetores(meus)} · ${futuros.length} removido(s) · ${novos.length} criado(s)`);
+  gravarMes(ym, null, 'Falha ao salvar a grade refeita.');
+  mesAtivo=ym; loadEscala(); selDate=ym+'-01'; render(); window.scrollTo(0,0);
+  toast(`Grade de ${nomesSetores(meus)} refeita — ${novos.length} plantões, em rascunho.`);
 }
 /* Preenche os postos ainda em aberto do próprio setor, num mês que já existe,
    usando as regras ativas da pessoa. Não encosta em quem já está escalado,
@@ -3125,56 +3297,91 @@ function preencherComRegras(){
   toast(`${antes-depois} posto(s) preenchido(s) em ${rotuloMes(ym)}.`
         + (depois? ` Restam ${depois} em aberto.`:' Nenhum posto em aberto restante.'));
 }
+/* Gera a escala DO PRÓPRIO SETOR. Se o mês ainda não existe, nasce aqui; se já
+   existe por conta de outra coordenação, os seus plantões são acrescentados sem
+   encostar nos dela. Setor que já tem grade nunca é sobrescrito por aqui —
+   para isso existe “Refazer a minha grade”. */
 function gerarEscala(){
   if(!editaAlgumaEscala()){ toast('Gerar escala é da coordenação que sobe a escala do setor.'); return; }
   const ym=document.getElementById('gerMes').value;
   const err=document.getElementById('gererr');
-  if(!ym){ err.textContent='Selecione o mês.'; err.style.display='block'; return; }
-  // PROTEÇÃO: nunca sobrescrever um mês existente
-  if(ESCALAS[ym] && ESCALAS[ym].shifts && ESCALAS[ym].shifts.length){
-    err.textContent='Já existe escala para '+rotuloMes(ym)+'. A geração não sobrescreve mês existente — '
-      + 'use “Preencher com as minhas regras” para completar os postos em aberto do seu setor.';
-    err.style.display='block'; gerAtualiza(); return;
+  const aviso=m=>{ if(err){ err.textContent=m; err.style.display='block'; } else toast(m); };
+  if(!ym){ aviso('Selecione o mês.'); return; }
+  const e=ESCALAS[ym];
+  const jaTem = sg => !!(e&&e.shifts&&e.shifts.some(s=>s.setor===sg));
+  const meus=setoresQueEdito();
+  const alvo=meus.filter(sg=>!jaTem(sg));
+  // A Urologia é automática e não tem coordenação para gerar: entra junto com
+  // quem criar o mês, já que a regra dela é fixa e dispensa alimentação.
+  const auto=setoresDeEscala().filter(sg=>(SETORES[sg]||{}).autoEscala && !jaTem(sg));
+  if(!alvo.length){
+    gerAtualiza();          // antes do aviso: gerAtualiza limpa a área de erro
+    aviso(`${nomesSetores(meus)} já ${meus.length>1?'têm':'tem'} escala em ${rotuloMes(ym)}. `
+      + 'Use “Preencher com as minhas regras” para completar os postos em aberto, ou '
+      + '“Refazer a minha grade” para montar tudo de novo.');
+    return;
   }
-  const shifts=gerarShiftsDoMes(ym);
+  const gerar=[...alvo,...auto];
+  const shifts=gerarShiftsDoMes(ym, gerar);
+  if(!shifts.length){ aviso('Nada a gerar para '+nomesSetores(gerar)+' em '+rotuloMes(ym)+'.'); return; }
   const preenchidos=shifts.filter(s=>s.medico!=='A DEFINIR').length;
-  if(!confirm(`Gerar a escala de ${rotuloMes(ym)}?\n\n${shifts.length} plantões serão criados.\n${preenchidos} já preenchidos pelas regras fixas; ${shifts.length-preenchidos} ficarão como A DEFINIR.\n\nO mês nasce como RASCUNHO, visível só para a coordenação.\nNenhum outro mês é afetado.`)) return;
+  const novoMes=!(e&&e.shifts&&e.shifts.length);
+  if(!confirm(`Gerar a escala de ${nomesSetores(alvo)} em ${rotuloMes(ym)}?\n\n`
+    + `${shifts.length} plantões serão criados.\n${preenchidos} já preenchidos pelas suas regras; `
+    + `${shifts.length-preenchidos} ficarão como A DEFINIR.\n\n`
+    + (auto.length?`A Urologia entra junto, automática pela regra fixa.\n\n`:'')
+    + `A sua escala nasce como RASCUNHO — só você e a direção veem — até publicar.\n`
+    + `${novoMes?'Nenhum outro mês é afetado.':'As escalas dos outros setores neste mês não são afetadas.'}`)) return;
   closeOv();
-  const info=`gerada pelo app em ${new Date().toLocaleString('pt-BR')} por ${autor()} — ${shifts.length} plantões`;
-  log('Escala GERADA para '+rotuloMes(ym), info+` · ${preenchidos} preenchidos por regras`);
-  ESCALAS[ym]={shifts, info, rascunho:true};
-  if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'})
-    .then(({error})=>{ if(error) toast('Falha ao salvar a escala gerada.'); else toast('Rascunho de '+rotuloMes(ym)+' criado.'); });
+  const info=`gerada pelo app em ${new Date().toLocaleString('pt-BR')} por ${autor()} — `
+    + `${nomesSetores(gerar)}, ${shifts.length} plantões`;
+  log('Escala GERADA · '+nomesSetores(gerar), rotuloMes(ym)+' · '+info
+      +` · ${preenchidos} preenchidos por regras`);
+  if(novoMes) ESCALAS[ym]={shifts, info, rasc:[...alvo,...auto]};
+  else {
+    ESCALAS[ym].shifts=[...ESCALAS[ym].shifts,...shifts].sort((a,b)=>a.data.localeCompare(b.data));
+    ESCALAS[ym].info=(ESCALAS[ym].info?ESCALAS[ym].info+' | ':'')+info;
+    marcarRascunho(ym, alvo, true);
+  }
+  gravarMes(ym, 'Rascunho de '+nomesSetores(alvo)+' em '+rotuloMes(ym)+' criado.',
+            'Falha ao salvar a escala gerada.');
   mesAtivo=ym; loadEscala(); selDate=ym+'-01'; selSetor='TODOS'; render(); window.scrollTo(0,0);
 }
+// Publica apenas os setores de quem está publicando.
 function publicarEscala(){
   if(!editaAlgumaEscala()){ toast('Publicar é da coordenação que sobe a escala.'); return; }
   const ym=MES.ym;
-  if(!ehRascunho(ym)){ toast('Esta escala já está publicada.'); return; }
-  const vagas=SHIFTS.filter(s=>s.medico==='A DEFINIR').length;
-  if(!confirm(`Publicar a escala de ${rotuloMes(ym)} para toda a equipe?${vagas?`\n\nAinda há ${vagas} posto(s) em A DEFINIR — eles ficarão visíveis como vaga em aberto.`:''}`)) return;
-  delete ESCALAS[ym].rascunho;
-  log('Escala PUBLICADA para a equipe', rotuloMes(ym)+` · ${vagas} vaga(s) em aberto`);
-  if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'})
-    .then(({error})=>{ if(error) toast('Falha ao publicar.'); else toast('Escala publicada — a equipe já pode ver.'); });
+  if(!ESCALAS[ym]||!ESCALAS[ym].shifts){ toast('Este mês não tem escala no banco.'); return; }
+  const meus=setoresQueEdito().filter(sg=>setorEmRascunho(ym,sg));
+  if(!meus.length){ toast('A sua escala deste mês já está publicada.'); return; }
+  const vagas=(ESCALAS[ym].shifts||[]).filter(s=>meus.includes(s.setor)&&s.medico==='A DEFINIR').length;
+  if(!confirm(`Publicar a escala de ${nomesSetores(meus)} em ${rotuloMes(ym)} para toda a equipe?${vagas?`\n\nAinda há ${vagas} posto(s) em A DEFINIR — eles ficarão visíveis como vaga em aberto.`:''}\n\nAs escalas dos outros setores não são afetadas.`)) return;
+  // A Urologia é automática: não tem coordenação para publicá-la, e a regra dela
+  // é fixa. Vai junto na primeira publicação do mês, e não volta a rascunho.
+  const auto=setoresDeEscala().filter(sg=>(SETORES[sg]||{}).autoEscala && setorEmRascunho(ym,sg));
+  marcarRascunho(ym, [...meus,...auto], false);
+  log('Escala PUBLICADA para a equipe', rotuloMes(ym)+' · '+nomesSetores(meus)+` · ${vagas} vaga(s) em aberto`);
+  gravarMes(ym, 'Escala de '+nomesSetores(meus)+' publicada.', 'Falha ao publicar.');
   loadEscala(); render();
 }
 function voltarRascunho(){
   if(!editaAlgumaEscala()){ toast('Esta ação é da coordenação que sobe a escala.'); return; }
   const ym=MES.ym;
-  if(!confirm(`Voltar a escala de ${rotuloMes(ym)} para rascunho? Ela deixará de aparecer para a equipe até ser publicada de novo.`)) return;
-  ESCALAS[ym].rascunho=true;
-  log('Escala voltou para rascunho', rotuloMes(ym));
-  if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'});
-  loadEscala(); render(); toast('Voltou para rascunho.');
+  if(!ESCALAS[ym]||!ESCALAS[ym].shifts){ toast('Este mês não tem escala no banco.'); return; }
+  const meus=setoresQueEdito().filter(sg=>!setorEmRascunho(ym,sg)
+                                       && (ESCALAS[ym].shifts||[]).some(s=>s.setor===sg));
+  if(!meus.length){ toast('Você não tem escala publicada neste mês.'); return; }
+  if(!confirm(`Voltar a escala de ${nomesSetores(meus)} em ${rotuloMes(ym)} para rascunho? Ela deixará de aparecer para a equipe até ser publicada de novo.\n\nAs escalas dos outros setores não são afetadas.`)) return;
+  marcarRascunho(ym, meus, true);
+  log('Escala voltou para rascunho', rotuloMes(ym)+' · '+nomesSetores(meus));
+  gravarMes(ym);
+  loadEscala(); render(); toast('Voltou para rascunho: '+nomesSetores(meus)+'.');
 }
 // Remover um posto (ex.: 3º plantonista em feriado que não terá)
 function ehTerceiro(s){ const p=postoDe(s); return !!(p && p.terceiro); }
 function semTerceiroLista(ym){ return (ESCALAS[ym] && ESCALAS[ym].semTerceiro) || []; }
 function semTerceiroNoDia(iso){ return semTerceiroLista(iso.slice(0,7)).find(x=>x.data===iso) || null; }
-function salvarEscalaMes(ym){
-  if(supa) supa.from('estado').upsert({chave:'escala:'+ym, valor:ESCALAS[ym], atualizado_por:autor()},{onConflict:'chave'});
-}
+function salvarEscalaMes(ym){ return gravarMes(ym); }
 // Libera a vaga: tira o nome do médico e devolve o posto como "A DEFINIR".
 // Usado quando o médico fica indisponível e a vaga precisa voltar a ficar aberta.
 function liberarVaga(ids){
@@ -4085,8 +4292,7 @@ const FIXOS = [
 /* Plantões de um mês qualquer já gravado. O mês ativo usa a lista viva. */
 function shiftsDoMes(ym){
   if(!ym || ym===MES.ym) return SHIFTS;
-  const e = ESCALAS[ym];
-  return (e && e.shifts) ? e.shifts : [];
+  return shiftsFirmes(ym);        // rascunho de outro mês não entra em conta nenhuma
 }
 /* As cinco classificações do custo de HM, numa fonte só: o painel do mês,
    o gráfico de acompanhamento e a legenda leem daqui. */
@@ -4190,7 +4396,7 @@ function mesesDoBI(max){
   const hoje = ymAtual();
   return Object.keys(ESCALAS).filter(ym=>{
     const e = ESCALAS[ym];
-    return e && e.shifts && e.shifts.length && !e.rascunho && ym<=hoje;
+    return e && e.shifts && e.shifts.length && shiftsFirmes(ym).length && ym<=hoje;
   }).sort().slice(-(max||12));
 }
 function serieCustos(max){
